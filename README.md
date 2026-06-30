@@ -77,7 +77,3 @@ Use the reviewer sub-agent on the work for feature #3. Report by severity.
 ## What This Costs
 
 Sub-agent-heavy workflows use more tokens than a single-thread session because each agent maintains its own context. The trade-off is that the main session stays clean and the project doesn't drift. For small features, run in the main session; bring in sub-agents when the work is structurally significant or context is getting heavy.
-
-## Reference
-
-Keith Hubner, *"Claude Code Workflow"*, Linux Magazine Issue 308, July 2026.
