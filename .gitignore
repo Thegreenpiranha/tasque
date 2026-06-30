@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# uv
+# (uv.lock is committed; the virtualenv is not)
+
+# Test / lint / tooling caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+
+# Tasque local data (app's on-disk SQLite; tests use :memory:/tmp)
+*.db
+*.sqlite
+*.sqlite3
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor folders
+.vscode/
+.idea/
+
+# Claude Code local files (keep .claude/agents and .claude/skills — they're part of the project)
+.claude/settings.local.json
+
+# Logs
+*.log
+
+# Secrets
+.env
+.env.local

@@ -1,0 +1,8 @@
+/* Tasque styling. All styling lives here, not inline. */
+
+#banner {
+    width: 100%;
+    height: 1fr;
+    content-align: center middle;
+    text-style: bold;
+}
