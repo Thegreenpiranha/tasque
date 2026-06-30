@@ -1,7 +1,5 @@
 # Agentic Workflow Scaffold
 
-A drop-in project skeleton for Claude Code, reconstructing the structured agentic workflow from Keith Hubner's article in *Linux Magazine* Issue 308 (July 2026).
-
 The idea: persistent project files (`CLAUDE.md`, `PLAN.md`, `LEARNINGS.md`) carry state across `/clear` resets, and specialist sub-agents (architect, researcher, implementer, tester, reviewer) do focused work in their own contexts. Skills encode reusable procedures. The result is a workflow that survives context limits and doesn't drift over many features.
 
 ## Structure
