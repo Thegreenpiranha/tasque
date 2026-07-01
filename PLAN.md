@@ -55,15 +55,7 @@ toggles `TodoList`/`EmptyState` via `-hidden` class, `on_list_view_highlighted` 
 
 ## In Progress
 
-_(empty — only one or two items here at a time)_
-
-## Backlog
-
-Ordered by dependency. Pick the topmost item whose dependencies are all Done.
-
----
-
-### Feature #5 — InputBar: Add, Toggle Complete, Edit, Delete
+### 🚧 Feature #5 — InputBar: Add, Toggle Complete, Edit, Delete
 
 **Goal:** The core interaction loop — create and manage tasks from the keyboard.
 
@@ -76,6 +68,16 @@ Ordered by dependency. Pick the topmost item whose dependencies are all Done.
 - UX spec in `docs/ux/` updated with the interaction flow and keybindings. Pilot tests cover add/toggle/edit/delete.
 
 **Depends on:** Feature #4
+
+**Design artefacts:**
+- UX specs: `docs/ux/input-bar.md`, `docs/ux/edit-screen.md`, `docs/ux/delete-confirmation.md`
+- Architecture: `docs/architecture/feature-5.md` (architect design, 2026-07-01)
+
+**Status:** Design complete (researcher + architect). Implementer not yet started.
+
+## Backlog
+
+Ordered by dependency. Pick the topmost item whose dependencies are all Done.
 
 ---
 

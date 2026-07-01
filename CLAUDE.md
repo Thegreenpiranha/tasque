@@ -31,7 +31,8 @@ This file is loaded into Claude Code's context at the start of every session. It
 │   ├── agents/        # sub-agents (architect, researcher, implementer, tester, reviewer)
 │   └── skills/        # procedural skills (new-feature, ui-component, testing)
 ├── docs/
-│   └── ux/            # UX specs the researcher saves here
+│   ├── ux/            # UX specs the researcher saves here
+│   └── architecture/  # architect design artefacts, one per feature (feature-<n>.md)
 ├── src/
 │   └── tasque/
 │       ├── __init__.py
@@ -90,3 +91,4 @@ A feature is **Done** in PLAN.md only when:
 4. Use sub-agents for the right roles — see `.claude/agents/` for who does what.
 5. Save UX specs to `docs/ux/<feature>.md` before writing UI code.
 6. Append discoveries to `LEARNINGS.md` as you find them.
+7. Architect designs are saved to `docs/architecture/feature-<n>.md` and PLAN.md is moved to In Progress before the implementer starts. In-chat design state doesn't count as durable.
