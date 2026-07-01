@@ -59,6 +59,44 @@ Dev box had only Python 3.13 and no `uv`/`ruff`. Installed `uv` via `pip install
 `uv run`/`uv sync` downloads and uses CPython 3.12 automatically — no manual 3.12 install needed.
 `ruff` comes in as a dev dependency. Coverage baseline established at 96% via `pytest-cov`.
 
+### 2026-07-01 — [gotcha] Rich Console Markup silently strips `[x]` and similar bracket tokens
+
+Textual `Static` widgets have `markup=True` by default, which delegates to Rich's Console Markup
+parser. Strings like `"[x]"` and `"(H)"` are parsed as unknown markup tags and **silently
+stripped** — `str(Static("[x]").render())` returns `""`. Fix: pass `markup=False` on all
+`Static` widgets that display literal ASCII symbols (checkbox glyphs, priority tags, cursor
+`▸`). The watcher's `update()` call inherits `_render_markup` from `__init__`, so setting it
+once is sufficient.
+
+### 2026-07-01 — [gotcha] `App.query()` does not traverse pushed screens
+
+In Textual 8.x, `App.query_one(SomeWidget)` and `App.query(SomeWidget)` search the app's
+**own** compose subtree (the default screen), not screens pushed via `push_screen()`. In tests
+that push a `MainScreen`, always query from `app.screen` (the active screen) instead:
+`app.screen.query_one(EmptyState)` not `app.query_one(EmptyState)`. The `app.screen` property
+correctly returns the topmost pushed screen.
+
+### 2026-07-01 — [gotcha] Textual CSS `text-style: strikethrough` is invalid; use `strike`
+
+Textual's CSS engine accepts only short-form text-style flags. `strikethrough` causes a
+`StylesheetParseError`; the correct value is `strike` (matching Rich's canonical name).
+Permitted values: `bold`, `dim`, `italic`, `underline` (`u`), `strike`, `overline` (`o`),
+`blink`, `reverse`, `none`.
+
+### 2026-07-01 — [decision] `TodoItem` reactive `todo` uses `init=False` to avoid watcher before compose
+
+Setting `todo: reactive[Todo | None] = reactive(None, init=False)` prevents Textual from calling
+`watch_todo(None)` during mount before `compose()` has created child widgets. The `on_mount`
+hook sets `self.todo = self._initial_todo` once children exist, which triggers `watch_todo`
+correctly. This pattern (store initial data in `_initial_todo`, compose from it directly, then
+set the reactive in `on_mount`) is the standard way to initialize reactive-driven children.
+
+### 2026-07-01 — [dep] platformdirs provides cross-platform `%LOCALAPPDATA%\Tasque` on Windows
+
+`user_data_dir("Tasque", appauthor=False)` returns `%LOCALAPPDATA%\Tasque` on Windows, the
+conventional location for per-user app data. `appauthor=False` omits the extra author subfolder
+that platformdirs would otherwise add. Tests always inject a `controller=` to bypass disk I/O.
+
 <!--
 Example entries (delete these once you have real ones):
 

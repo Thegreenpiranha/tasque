@@ -154,9 +154,7 @@ class Database:
 
     def get(self, todo_id: int) -> Todo:
         """Return the todo with ``todo_id`` or raise :class:`TodoNotFoundError`."""
-        row = self._conn.execute(
-            "SELECT * FROM todos WHERE id = ?", (todo_id,)
-        ).fetchone()
+        row = self._conn.execute("SELECT * FROM todos WHERE id = ?", (todo_id,)).fetchone()
         if row is None:
             raise TodoNotFoundError(todo_id)
         return _row_to_todo(row)

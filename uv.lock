@@ -216,6 +216,7 @@ name = "tasque"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "platformdirs" },
     { name = "textual" },
 ]
 
@@ -228,7 +229,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "textual", specifier = ">=0.60" }]
+requires-dist = [
+    { name = "platformdirs", specifier = ">=4.10.0" },
+    { name = "textual", specifier = ">=0.60" },
+]
 
 [package.metadata.requires-dev]
 dev = [

@@ -1,8 +1,114 @@
-/* Tasque styling. All styling lives here, not inline. */
+/* Tasque styling. All styling lives here — no inline style mutation in Python. */
 
-#banner {
-    width: 100%;
+/* =========================================================================
+   Main screen
+   ========================================================================= */
+
+MainScreen {
+    layout: vertical;
+}
+
+/* List panel — the bordered container holding TodoList and EmptyState. */
+#list-panel {
+    height: 1fr;
+    border: round $primary;
+}
+
+/* =========================================================================
+   TodoList (ListView subclass)
+   ========================================================================= */
+
+TodoList {
+    height: 1fr;
+    background: $surface;
+}
+
+/* =========================================================================
+   TodoItem (ListItem subclass) — one-line task row
+   ========================================================================= */
+
+TodoItem {
+    height: 1;
+    layout: horizontal;
+}
+
+TodoItem > #gutter {
+    width: 2;
+}
+
+TodoItem > #checkbox {
+    width: 4;
+}
+
+TodoItem > #priority {
+    width: 4;
+}
+
+TodoItem > #title {
+    width: 1fr;
+    overflow: hidden hidden;
+}
+
+TodoItem > #meta {
+    width: auto;
+    height: 1;
+}
+
+/* Done state: dim the row */
+TodoItem.-done > #title {
+    color: $text-disabled;
+    text-style: strike;
+}
+
+TodoItem.-done > #checkbox {
+    color: $text-disabled;
+}
+
+TodoItem.-done > #meta {
+    color: $text-disabled;
+}
+
+/* =========================================================================
+   EmptyState
+   ========================================================================= */
+
+EmptyState {
+    width: 1fr;
     height: 1fr;
     content-align: center middle;
+    color: $text-muted;
+}
+
+/* =========================================================================
+   Utility
+   ========================================================================= */
+
+/* Toggled by Python to show/hide TodoList and EmptyState. */
+.-hidden {
+    display: none;
+}
+
+/* =========================================================================
+   Reserved CSS class seams (unused in Feature #4; activated in #6 / #7)
+   ========================================================================= */
+
+TodoItem.-priority-high > #priority {
+    color: $error;
+}
+
+TodoItem.-priority-medium > #priority {
+    color: $warning;
+}
+
+TodoItem.-priority-low > #priority {
+    color: $primary;
+}
+
+TodoItem.-overdue > #meta {
+    color: $error;
     text-style: bold;
+}
+
+TodoItem.-due-today > #meta {
+    color: $warning;
 }

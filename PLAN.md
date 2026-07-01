@@ -37,6 +37,22 @@ returns the deleted item (seam for undo, Feature #9). Exceptions `TasqueError` �
 Tests use `:memory:`/tmp-path: CRUD round-trips, not-found paths, reopen+migration-skip, error
 wrappers. Coverage 96% (db.py 100%).
 
+### ✅ Feature #4 — Main Screen: TodoList & TodoItem Widgets — _completed 2026-07-01_
+
+`platformdirs` added for cross-platform DB path; `controller.py` introduced (`TodoController`)
+as the layer between the UI and `db.py` — `list_todos()` implemented, mutation methods are
+`NotImplementedError` seams for #5/#6, `_apply` + `Command` protocol seams for #9. New widgets:
+`TodoItem(ListItem)` — single-line row with gutter/checkbox/priority/title/meta slots, reactive
+`todo` drives checkbox+title+done-class updates, gutter shows `▸` on highlight; `TodoList(ListView)`
+— `set_todos()` (async clear + mount), `update_todo()` (single-row re-render), `current_todo_id`,
+vim `j/k/g/G/ctrl+d/ctrl+u` navigation, four intent-message seams for #5/#6;
+`EmptyState(Static)` — shows "No tasks yet", `cta` reactive seam for #5.
+`MainScreen(Screen)` — Header/`#list-panel`(border-title counts)/Footer, async `refresh_todos()`
+toggles `TodoList`/`EmptyState` via `-hidden` class, `on_list_view_highlighted` wired.
+`TasqueApp` now accepts `controller=` injection (tests) or builds from `default_user_db_path()`
+(platformdirs), pushes `MainScreen` on mount; banner removed.
+75 tests, 93% coverage (all modules ≥80%), ruff clean.
+
 ## In Progress
 
 _(empty — only one or two items here at a time)_
@@ -44,22 +60,6 @@ _(empty — only one or two items here at a time)_
 ## Backlog
 
 Ordered by dependency. Pick the topmost item whose dependencies are all Done.
-
----
-
-### Feature #4 — Main Screen: TodoList & TodoItem Widgets
-
-**Goal:** Render the list of todos on the main screen.
-
-**Acceptance criteria:**
-- `screens/main.py` hosts a `TodoList` widget that renders `TodoItem` widgets, one per todo, from data fetched via the controller.
-- `controller.py` introduced as the layer between widgets and `db.py`; widgets never import `db.py`.
-- `TodoItem` shows text and completed state; keyboard navigation moves focus between items.
-- Empty state ("No tasks yet") renders when the list is empty.
-- UX spec saved to `docs/ux/main-screen.md` before coding. Styling in `tasque.tcss`.
-- Tests via `App.run_test()` pilot: items render, navigation works, empty state shows.
-
-**Depends on:** Feature #3
 
 ---
 

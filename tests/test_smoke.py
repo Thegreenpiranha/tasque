@@ -1,20 +1,36 @@
-"""Feature #1 smoke test: the app boots, shows its banner, and quits on `q`."""
+"""Smoke tests: the app boots, shows the main screen, and quits on `q`.
 
-from textual.widgets import Static
+Uses an in-memory database so these tests never touch the user's data file.
+"""
+
+from __future__ import annotations
 
 from tasque.app import TasqueApp
+from tasque.controller import TodoController
+from tasque.db import Database
+from tasque.screens.main import MainScreen
 
 
-async def test_app_boots_and_shows_banner():
-    app = TasqueApp()
-    async with app.run_test():
-        banner = app.query_one("#banner", Static)
-        assert "Tasque" in str(banner.render())
+def _make_app() -> TasqueApp:
+    """Return a TasqueApp backed by a fresh in-memory database."""
+    db = Database(":memory:")
+    return TasqueApp(controller=TodoController(db))
+
+
+async def test_app_boots_and_shows_main_screen():
+    app = _make_app()
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
         assert app.title == "Tasque"
+        assert isinstance(app.screen, MainScreen)
 
 
 async def test_quits_on_q():
-    app = TasqueApp()
+    app = _make_app()
+
     async with app.run_test() as pilot:
+        await pilot.pause()
         await pilot.press("q")
+
     assert app.return_code == 0
