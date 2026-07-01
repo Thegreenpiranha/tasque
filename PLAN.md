@@ -53,27 +53,28 @@ toggles `TodoList`/`EmptyState` via `-hidden` class, `on_list_view_highlighted` 
 (platformdirs), pushes `MainScreen` on mount; banner removed.
 75 tests, 93% coverage (all modules ≥80%), ruff clean.
 
+### ✅ Feature #5 — InputBar: Add, Toggle Complete, Edit, Delete — _completed 2026-07-01_
+
+The core interaction loop. `controller.py` mutations implemented — `add`/`toggle`/`edit`/
+`delete` each build a private `_*Command` (`execute()`/`undo()` + `result`) and route through
+`_apply` (still `-> None`; result rides on `command.result`), so Feature #9 hooks the undo
+stack with zero call-site changes; `get_todo()` read added for edit pre-fill / delete text.
+New `InputBar(Widget)` — docked bottom bar shared by add/edit, `mode` reactive
+(`always_update=True`) drives the border-title word, `-hidden`/`-invalid` classes, posts
+`Submitted(value, mode)`/`Cancelled(mode)`; add stays open+clears for rapid multi-add, edit
+closes, unchanged-edit posts `Cancelled`, empty/whitespace pulses `-invalid`. New
+`DeleteConfirmScreen(ModalScreen[bool])` — neutral copy, Cancel-focused default (k9s lesson),
+`« »` focus marker, `y`/`d` confirm · `n`/`Esc` cancel. `TodoList` gained `space`/`enter`→toggle,
+`e`→edit, `d`→delete bindings posting the existing intents. `MainScreen` composes the bar, wires
+all four flows through the controller, post-delete cursor rule (next row, clamp to prev if last,
+EmptyState when empty), and `TasqueError`→error-toast guards. Design artefacts:
+`docs/ux/{input-bar,edit-screen,delete-confirmation}.md`, `docs/architecture/feature-5.md`.
+No schema change (`user_version` stays 1). 126 tests, 94% coverage (all modules ≥80%,
+controller 100%), ruff clean.
+
 ## In Progress
 
-### 🚧 Feature #5 — InputBar: Add, Toggle Complete, Edit, Delete
-
-**Goal:** The core interaction loop — create and manage tasks from the keyboard.
-
-**Acceptance criteria:**
-- `InputBar` widget adds a new todo via the controller; the list updates live.
-- Toggle complete on the focused item (keybinding); state persists.
-- Edit the focused item's text inline; persists on confirm, cancels on escape.
-- Delete the focused item (with confirm), persists.
-- All mutations route through the controller (sets up the seam undo/redo will later hook).
-- UX spec in `docs/ux/` updated with the interaction flow and keybindings. Pilot tests cover add/toggle/edit/delete.
-
-**Depends on:** Feature #4
-
-**Design artefacts:**
-- UX specs: `docs/ux/input-bar.md`, `docs/ux/edit-screen.md`, `docs/ux/delete-confirmation.md`
-- Architecture: `docs/architecture/feature-5.md` (architect design, 2026-07-01)
-
-**Status:** Design complete (researcher + architect). Implementer not yet started.
+_Nothing in progress._
 
 ## Backlog
 

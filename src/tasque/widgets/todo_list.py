@@ -21,9 +21,14 @@ class TodoList(ListView):
     and page jumps ``Ctrl+d``/``Ctrl+u``.
 
     Intent messages (seams for Features #5 and #6) are defined here so the
-    screen can register handlers before those features land.  The bindings
-    that *post* them (``Space``, ``e``, ``d``, ``p``) are **not** added until
-    those features are implemented.
+    screen can register handlers before those features land.  Feature #5 adds
+    the bindings that *post* the toggle/edit/delete intents (``Space``/``Enter``,
+    ``e``, ``d``); ``p`` (priority) is still deferred to Feature #6.
+
+    These action keys only fire while the ``TodoList`` holds focus — when the
+    InputBar or the delete modal is open, the list is blurred (or input-trapped),
+    so no toggle/edit/delete can fire behind them (the structural state-guard,
+    ``docs/architecture/feature-5.md`` §6).
     """
 
     BINDINGS = [
@@ -37,6 +42,11 @@ class TodoList(ListView):
         Binding("ctrl+u", "cursor_page_up", "Page up", show=False),
         Binding("pagedown", "cursor_page_down", "Page down", show=False),
         Binding("pageup", "cursor_page_up", "Page up", show=False),
+        # Feature #5 action keys (override ListView's native select for toggle).
+        Binding("space", "toggle", "Toggle", show=False),
+        Binding("enter", "toggle", "Toggle", show=False),
+        Binding("e", "edit", "Edit", show=False),
+        Binding("d", "delete", "Delete", show=False),
     ]
 
     # -- Intent message seams (Features #5 / #6) ----------------------------- #
@@ -102,6 +112,26 @@ class TodoList(ListView):
         if isinstance(child, TodoItem):
             return child.todo_id
         return None
+
+    # -- intent actions (Feature #5) ---------------------------------------- #
+
+    def action_toggle(self) -> None:
+        """Request a completion toggle on the highlighted row (no-op if empty)."""
+        todo_id = self.current_todo_id
+        if todo_id is not None:
+            self.post_message(self.ToggleRequested(todo_id))
+
+    def action_edit(self) -> None:
+        """Request an edit of the highlighted row (no-op if empty)."""
+        todo_id = self.current_todo_id
+        if todo_id is not None:
+            self.post_message(self.EditRequested(todo_id))
+
+    def action_delete(self) -> None:
+        """Request a delete of the highlighted row (no-op if empty)."""
+        todo_id = self.current_todo_id
+        if todo_id is not None:
+            self.post_message(self.DeleteRequested(todo_id))
 
     # -- navigation actions ------------------------------------------------- #
 

@@ -69,6 +69,69 @@ TodoItem.-done > #meta {
 }
 
 /* =========================================================================
+   InputBar (docked add/edit bar) — Feature #5
+   ========================================================================= */
+
+/* $accent border reads "you type here", distinct from the list's $primary. */
+InputBar {
+    height: auto;
+    border: round $accent;
+}
+
+/* Empty submit: ~600ms pulse. The border word + colour, never colour alone. */
+InputBar.-invalid {
+    border: round $error;
+}
+
+InputBar Horizontal {
+    height: auto;
+}
+
+/* › prompt glyph (ASCII fallback >), marks the input line. */
+InputBar #prompt {
+    width: 2;
+    color: $accent;
+}
+
+InputBar #bar-input {
+    border: none;
+    background: $surface;
+    height: 1;
+}
+
+/* =========================================================================
+   DeleteConfirmScreen (modal) — Feature #5
+   ========================================================================= */
+
+/* $error border = the one destructive surface (echoes main-screen.md). */
+DeleteConfirmScreen {
+    align: center middle;
+}
+
+#confirm-dialog {
+    border: round $error;
+    padding: 1 2;
+    width: auto;
+    max-width: 50;
+    height: auto;
+    background: $surface;
+}
+
+#confirm-target {
+    color: $text-muted;
+    margin: 1 0;
+}
+
+#confirm-buttons {
+    height: auto;
+    align: center middle;
+}
+
+#confirm-dialog Button {
+    margin: 0 1;
+}
+
+/* =========================================================================
    EmptyState
    ========================================================================= */
 

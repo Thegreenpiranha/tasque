@@ -118,6 +118,49 @@ delete-confirm modal it moves `Cancel`↔`Delete`; in the single-field `InputBar
 than restating it. If a future multi-field add form lands, `Tab` gains meaning inside the `InputBar`
 surface only.
 
+### 2026-07-01 — [gotcha] A reactive set to its *current* value doesn't fire the watcher
+
+`InputBar.mode` defaults to `"add"`; `open_add()` sets `self.mode = "add"`, which — because the
+value didn't change — did **not** run `watch_mode`, so the `New task` border-title never got set
+(it stayed `None`). Textual only fires a watcher when the value differs. Fix: declare the reactive
+`reactive("add", init=False, always_update=True)`. `always_update=True` fires the watcher on every
+explicit assignment even when the value is unchanged; `init=False` still suppresses the watcher
+during mount (before `compose()` builds children). This pairing is the right shape whenever a
+reactive drives side effects (title/placeholder) and can be legitimately "re-set" to the same value.
+
+### 2026-07-01 — [decision] The `_apply` / `command.result` seam keeps undo (#9) call-site-free
+
+Feature #5's four mutations don't just call `db.py` — each builds a private `_*Command`
+(`execute()`/`undo()` + a `result: Todo | None` attribute) and routes it through
+`controller._apply(command)`, which today is just `command.execute()`. The public method then
+returns `command.result`. Two things make this the honest seam: (1) `_apply` keeps its shipped
+`-> None` signature — the produced `Todo` rides on `command.result`, not a return value — so #9 can
+change *only* `_apply`'s body (append to an undo stack, clear redo) with **zero** call-site edits;
+(2) the `undo()` bodies are written now but never invoked at #5, so they carry `# pragma: no cover -
+Feature #9 seam` — they can't be exercised through the public API yet (there's no `controller.undo()`
+until #9), and testing them via the private `_*Command` classes would break the "tests describe
+behaviour, not implementation" rule. Flagged for #9: `_DeleteCommand.undo` re-inserts via `db.add`,
+which assigns a **new** id — restoring the original id needs an `insert_with_id`/resurrection path.
+
+### 2026-07-01 — [gotcha] `ListView.can_focus_children=False` forced the docked-bar design
+
+Both add and edit reuse one `InputBar` docked *below* the list panel rather than an in-row `Input`,
+because `ListView` sets `can_focus_children=False` — an `Input` mounted inside a `TodoItem` row can
+never take keyboard focus (keys route to the `ListView`, not its item descendants). The bar lives
+outside the `ListView` subtree, so its `Input` focuses normally. This is also why the structural
+state-guard works for free: `space`/`e`/`d` are `TodoList` bindings that only fire while the list
+holds focus; when the bar is open the list is blurred and those keys are consumed by the focused
+`Input` as literal characters (a stray `d` types "d", it doesn't open the delete modal).
+
+### 2026-07-01 — [gotcha] `notify` has no "success" severity; capture toasts by patching `app.notify`
+
+Textual `App.notify(severity=...)` only accepts `information`/`warning`/`error` — there is no
+`success`. The delete success toast (`✓ Deleted "…"`) uses `severity="information"` and carries its
+meaning in the `✓`+word text (matching the color-blind-safety rule), not a green severity. In pilot
+tests, the clean way to assert a toast fired is to reassign the recorder `app.notify = lambda msg,
+**kw: messages.append(msg)` *inside* the `run_test()` block, then assert on `messages` — more robust
+than reaching into Textual's private notification deque.
+
 <!--
 Example entries (delete these once you have real ones):
 
