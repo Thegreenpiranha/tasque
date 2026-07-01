@@ -192,7 +192,7 @@ The normal case — rows as in the Layout wireframe. Newest-at-top or sort order
 | Jump to bottom | `G` / `End` | Highlight last row | no | #4 |
 | Toggle complete | `Space` / `Enter` | Post toggle intent → controller flips `completed`, persists, row re-renders `[ ]`↔`[x]` | `▸` | #5 |
 | Add task | `a` | Open `InputBar` at bottom; on `Enter` create via controller, new row appears + becomes cursor; `Esc` cancels | `▸` | #5 |
-| Edit task | `e` | Inline-edit the cursor row's title; `Enter` persists, `Esc` cancels | `▸` | #5 |
+| Edit task | `e` | Edit via the docked `InputBar` (pre-filled with the row's title, caret at end); `Enter` persists, `Esc` cancels | `▸` | #5 |
 | Delete task | `d` | Confirm prompt (`Delete "…"?  y/n`); `y` deletes via controller + toast, `n`/`Esc` aborts | `▸` | #5 |
 | Cycle priority | `p` | Cursor row priority none→low→med→high→none; persists; tag re-renders | `▸` | #6 |
 | Filter (reserved) | `/` | Filter input over the list (k9s convention) | no | future |
@@ -218,7 +218,8 @@ Footer order (mirrors the wireframe): `a Add · ␣ Toggle · e Edit · d Delete
 
 ## Accessibility & Degradation
 
-- **Keyboard-only path:** Launch → list has focus → `j`/`k` to the target → `Space` toggle / `e` edit / `d` delete / `p` priority / `a` add. Every function is reachable with no mouse. `Tab` moves focus between the list and the InputBar (when open); `Esc` always backs out of an edit/confirm/filter to the list.
+- **Keyboard-only path:** Launch → list has focus → `j`/`k` to the target → `Space` toggle / `e` edit / `d` delete / `p` priority / `a` add. Every function is reachable with no mouse. `Esc` always backs out of an edit/confirm/filter to the list.
+- **App-wide `Tab` convention (canonical — other specs defer to this):** `Tab` is *not* a primary navigation key in Tasque; the cursor (`j`/`k`) is. `Tab`/`Shift+Tab` cycles focus **only among the controls within the currently active surface**, and never moves focus out of that surface: in the delete-confirmation modal it moves between `Cancel` and `Delete`; in the single-field `InputBar` (add/edit) there is no second control, so `Tab` is **inert** (reserved for a future multi-field add — e.g. inline priority/due). Opening the `InputBar` moves focus to it and `Esc` (not `Tab`) returns focus to the list. This keeps `Tab` behaviour uniform: it stays inside the active surface, and where a surface has one control it does nothing.
 - **Color-blind safety:** every colored state is paired with a glyph/word — `[x]` (done), `(H)/(M)/(L)/(!)` (priority/urgency), `OVERDUE`/`due today` (dates), `▸` (cursor). The screen is fully usable with color disabled.
 - **Monochrome / 16-color terminals:** all glyphs are ASCII (`[ ] [x] ( ) ▸ # …`); `▸` falls back to `>` if needed. On 16-color terminals Textual maps theme tokens to the nearest ANSI color; because meaning is carried by symbols, a token collapsing to a near color loses no information. Strikethrough/dim for done degrade to dim-only if strike is unsupported, still distinguishable by `[x]`.
 - **Screen reader / labels:** each `TodoItem` exposes a text label combining state into one readable string, e.g. `"incomplete, high priority, Finish the quarterly report, due today"` so a row is meaningful read aloud, not just visual glyphs. The list panel's border title (`Inbox · 3 active · 1 done`) gives orientation. The cursor row should be announced on `Highlighted`.

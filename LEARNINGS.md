@@ -97,6 +97,27 @@ set the reactive in `on_mount`) is the standard way to initialize reactive-drive
 conventional location for per-user app data. `appauthor=False` omits the extra author subfolder
 that platformdirs would otherwise add. Tests always inject a `controller=` to bypass disk I/O.
 
+### 2026-07-01 — [ux] Delete-confirmation copy deliberately defers the undo hint to Feature #9
+
+The Feature #5 delete-confirmation dialog (`docs/ux/delete-confirmation.md`) and its success toast
+intentionally use **neutral wording** — no "permanently", and *no* "can be undone / press `u` to
+undo" claim — because undo does not exist until Feature #9. `db.delete()` already returns the
+deleted `Todo` (the undo seam), so the copy must not over-promise permanence either. **Action for
+Feature #9:** when the undo/redo stack lands, revisit the delete flow and add the `undo with u`
+hint to the success toast (and any equivalent copy), so the promise appears exactly when it becomes
+true. This entry is the reminder that the wording is provisional by design, not an oversight.
+
+### 2026-07-01 — [decision] Canonical app-wide `Tab` convention lives in `main-screen.md`
+
+`Tab` behaviour was drifting across specs (main-screen said "moves focus between list and InputBar",
+input-bar said "same as Esc" in one place and "no-op" in another). Resolved to a single canonical
+rule documented in `main-screen.md § Accessibility & Degradation`: `Tab`/`Shift+Tab` cycles focus
+**only among controls within the currently active surface** and never leaves it — in the
+delete-confirm modal it moves `Cancel`↔`Delete`; in the single-field `InputBar` it is **inert**
+(does nothing, does *not* close the bar — `Esc` does that). Other specs defer to that section rather
+than restating it. If a future multi-field add form lands, `Tab` gains meaning inside the `InputBar`
+surface only.
+
 <!--
 Example entries (delete these once you have real ones):
 
