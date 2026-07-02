@@ -96,6 +96,13 @@ Ordered by dependency. Pick the topmost item whose dependencies are all Done.
 
 **Depends on:** Feature #5
 
+**Note (context for the architect, not a decided constraint):** `_PRIORITY_WORDS` in
+`todo_item.py` currently uses `{1: low, 2: medium, 3: high}` as an *inert placeholder* for the
+accessible-label seam — consistent with the documented `none→low→medium→high` cycle direction, but
+never exercised (priority is always `None` until this feature). Feature #6's architect pass should
+**confirm or override** this encoding when defining the priority data model, then update the mapping
+to match.
+
 ---
 
 ### Feature #7 — Due Dates

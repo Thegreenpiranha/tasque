@@ -204,6 +204,20 @@ mutating a frozen `Binding`; instead declare two same-key bindings (one per labe
 "added this session" flag changes so the `Footer` re-reads. This priority-binding pattern is the one
 to reach for whenever a docked widget hosting an `Input` needs its own footer hints.
 
+### 2026-07-02 — [workflow] Forward-notes to a later feature must not assert decisions that haven't been made
+
+When one feature leaves a note for a future one, distinguish a **constraint the next feature must
+respect** from **context the next feature's designer should see**. The former is a lie if the
+decision doesn't exist yet; the latter is honest signal. Caught during the Feature #5 fix-up: the
+`_PRIORITY_WORDS = {1: low, 2: medium, 3: high}` placeholder in `todo_item.py` was almost recorded as
+"reconcile with the priority encoding decided in #5" — but **no encoding was decided** (Feature #6 is
+unstarted, `cycle_priority` is still a `NotImplementedError` seam, `Todo.priority` is a bare
+`int | None`). The seam is inert (priority is always `None`) and its ascending order merely matches the
+documented `none→low→medium→high` cycle. Correct move: leave the seam, and add a note to Feature #6's
+**backlog entry** phrased as "architect should confirm or override," not a PLAN line claiming a
+reconciliation already happened. Before "reconciling" against a prior decision, verify the decision
+actually exists in the code/docs — don't invent it to satisfy the instruction.
+
 <!--
 Example entries (delete these once you have real ones):
 
