@@ -10,8 +10,7 @@ from textual.containers import Container
 from textual.screen import Screen
 from textual.widgets import Footer, Header, ListView
 
-from tasque.controller import TodoController
-from tasque.db import TasqueError
+from tasque.controller import TasqueError, TodoController
 from tasque.screens.delete_confirm import DeleteConfirmScreen
 from tasque.widgets.empty_state import EmptyState
 from tasque.widgets.input_bar import InputBar
@@ -82,6 +81,11 @@ class MainScreen(Screen[None]):
         has_todos = bool(todos)
         todo_list.set_class(not has_todos, "-hidden")
         empty_state.set_class(has_todos, "-hidden")
+        if not has_todos:
+            # Resting empty state carries the CTA (first run + after the last
+            # delete), not just once the bar is opened. See main-screen.md §Empty
+            # / input-bar.md § Relationship to the EmptyState CTA.
+            empty_state.cta = _ADD_CTA
 
     def _update_counts(self, todos: list) -> None:
         """Refresh only the panel border-title counts (no list rebuild)."""
@@ -207,7 +211,6 @@ class MainScreen(Screen[None]):
         input_bar = self.query_one(InputBar)
         if not input_bar.has_class("-hidden"):
             return  # bar already open; ignore a second `a`
-        self.query_one(EmptyState).cta = _ADD_CTA
         input_bar.open_add()
 
     def action_help(self) -> None:

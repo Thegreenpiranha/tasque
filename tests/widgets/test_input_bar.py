@@ -251,3 +251,21 @@ async def test_escape_posts_cancelled():
 
         assert len(app.cancelled) == 1
         assert app.cancelled[0].mode == "add"
+
+
+async def test_escape_still_cancels_after_a_successful_add():
+    """Once ≥1 task has been added, Esc reads "Done" but still closes the bar
+    (the "Done"-labelled escape binding, input-bar.md § Footer hints)."""
+    app = _BarApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        bar = app.query_one(InputBar)
+        bar.open_add()
+        await pilot.pause()
+        bar.clear_for_next_add()  # a task landed → Esc now means "Done"
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert len(app.cancelled) == 1
+        assert app.cancelled[0].mode == "add"

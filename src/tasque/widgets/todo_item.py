@@ -6,10 +6,14 @@ import logging
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal
+from textual.css.query import NoMatches
 from textual.reactive import reactive
 from textual.widgets import ListItem, Static
 
 from tasque.models import Todo
+
+# Priority-code → spoken word, for the accessible label (values land with #6).
+_PRIORITY_WORDS = {3: "high priority", 2: "medium priority", 1: "low priority"}
 
 logger = logging.getLogger("tasque.widgets.todo_item")
 
@@ -76,9 +80,10 @@ class TodoItem(ListItem):
         super().watch_highlighted(value)
         try:
             self.query_one("#gutter", Static).update("▸ " if value else "  ")
-        except Exception:
-            # Guard against the watcher firing before compose() has run.
-            pass
+        except NoMatches:
+            # The watcher can fire before compose() has created #gutter; the
+            # on_mount → watch_todo path renders the correct gutter shortly after.
+            self.log("watch_highlighted fired before #gutter existed; skipping")
 
     # -- helpers ------------------------------------------------------------ #
 
@@ -87,6 +92,29 @@ class TodoItem(ListItem):
         # Seam classes for Feature #6 / #7 (defined, never set in #4):
         self.remove_class("-priority-high", "-priority-medium", "-priority-low")
         self.remove_class("-overdue", "-due-today")
+
+    # -- accessibility ------------------------------------------------------ #
+
+    @property
+    def accessible_label(self) -> str:
+        """A single readable string folding the row's state, for a screen reader.
+
+        e.g. ``"incomplete, high priority, Finish the quarterly report"``. Priority
+        joins in with Feature #6 and due date with #7; today (both ``None``) the
+        label is just completion + text. Computed live from the current ``todo``
+        so it never goes stale after a toggle or edit.
+        """
+        todo = self.todo if self.todo is not None else self._initial_todo
+        return self._compose_accessible_label(todo)
+
+    @staticmethod
+    def _compose_accessible_label(todo: Todo) -> str:
+        parts = ["completed" if todo.completed else "incomplete"]
+        priority_word = _PRIORITY_WORDS.get(todo.priority)  # type: ignore[arg-type]
+        if priority_word is not None:
+            parts.append(priority_word)
+        parts.append(todo.text)
+        return ", ".join(parts)
 
     # -- public API --------------------------------------------------------- #
 

@@ -20,10 +20,15 @@ import logging
 from dataclasses import replace
 from typing import Protocol, runtime_checkable
 
-from tasque.db import Database
+from tasque.db import Database, TasqueError
 from tasque.models import Todo
 
 logger = logging.getLogger("tasque.controller")
+
+# Re-exported so the UI layer catches domain errors through the controller —
+# the layer it is allowed to import — rather than reaching into ``db.py``
+# directly (see CLAUDE.md § Architectural Rules → Layer boundaries).
+__all__ = ["Command", "TasqueError", "TodoController"]
 
 
 # --------------------------------------------------------------------------- #

@@ -43,10 +43,12 @@ class TodoList(ListView):
         Binding("pagedown", "cursor_page_down", "Page down", show=False),
         Binding("pageup", "cursor_page_up", "Page up", show=False),
         # Feature #5 action keys (override ListView's native select for toggle).
-        Binding("space", "toggle", "Toggle", show=False),
+        # space/e/d show in the footer (list-focused idle hints); enter is the
+        # silent toggle alias, kept show=False so "Toggle" is not listed twice.
+        Binding("space", "toggle", "Toggle", show=True),
         Binding("enter", "toggle", "Toggle", show=False),
-        Binding("e", "edit", "Edit", show=False),
-        Binding("d", "delete", "Delete", show=False),
+        Binding("e", "edit", "Edit", show=True),
+        Binding("d", "delete", "Delete", show=True),
     ]
 
     # -- Intent message seams (Features #5 / #6) ----------------------------- #

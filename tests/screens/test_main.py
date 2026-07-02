@@ -239,6 +239,15 @@ def _capture_notifications(app) -> list[str]:
     return messages
 
 
+def _shown_hints(screen) -> list[tuple[str, str]]:
+    """The (key, description) pairs the Footer would show for the active screen."""
+    return [
+        (binding.binding.key, binding.binding.description)
+        for binding in screen.active_bindings.values()
+        if binding.binding.show
+    ]
+
+
 # --------------------------------------------------------------------------- #
 # Add flow
 # --------------------------------------------------------------------------- #
@@ -719,3 +728,144 @@ async def test_help_key_shows_placeholder_notification(mem_db):
         await pilot.pause()
 
         assert any("Help" in m for m in messages)
+
+
+# --------------------------------------------------------------------------- #
+# Enter toggles (alias of Space) — reviewer suggestion
+# --------------------------------------------------------------------------- #
+
+
+async def test_enter_toggles_completion(mem_db):
+    """Enter is the toggle alias of Space (main-screen.md keybindings table)."""
+    mem_db.add(Todo.new("task"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one(TodoList).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        item = screen.query_one(TodoItem)
+        assert item.has_class("-done")
+        assert str(item.query_one("#checkbox").render()) == "[x]"
+
+
+# --------------------------------------------------------------------------- #
+# Empty-state CTA timing — the CTA is part of the resting empty state
+# --------------------------------------------------------------------------- #
+
+
+async def test_empty_state_shows_add_cta_at_rest(mem_db):
+    """First run: the CTA is visible without pressing `a` (main-screen.md §Empty)."""
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        empty = app.screen.query_one(EmptyState)
+
+        assert not empty.has_class("-hidden")
+        assert "add your first task" in str(empty.render())
+
+
+async def test_cta_present_after_deleting_the_last_row(mem_db):
+    """Clearing the list returns to the resting empty state, CTA and all."""
+    mem_db.add(Todo.new("last one"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.screen.query_one(TodoList).focus()
+        await pilot.press("d")
+        await pilot.pause()
+        await pilot.press("y")
+        await pilot.pause()
+
+        empty = app.screen.query_one(EmptyState)
+        assert not empty.has_class("-hidden")
+        assert "add your first task" in str(empty.render())
+
+
+# --------------------------------------------------------------------------- #
+# Footer hint swap — mode-dependent hints (input-bar / edit-screen / delete specs)
+# --------------------------------------------------------------------------- #
+
+
+async def test_footer_idle_shows_list_action_hints(mem_db):
+    mem_db.add(Todo.new("task"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one(TodoList).focus()
+        await pilot.pause()
+
+        hints = dict(_shown_hints(screen))
+        assert hints.get("space") == "Toggle"
+        assert hints.get("e") == "Edit"
+        assert hints.get("d") == "Delete"
+        assert hints.get("a") == "Add"
+
+
+async def test_footer_add_mode_shows_add_task_and_cancel(mem_db):
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("a")
+        await pilot.pause()
+
+        hints = dict(_shown_hints(app.screen))
+        assert hints.get("enter") == "Add task"
+        assert hints.get("escape") == "Cancel"
+        # The list-idle hints are gone while typing.
+        assert "a" not in hints
+
+
+async def test_footer_add_mode_swaps_cancel_to_done_after_first_add(mem_db):
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("a")
+        await pilot.pause()
+        app.screen.query_one("#bar-input", Input).value = "milk"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        hints = dict(_shown_hints(app.screen))
+        assert hints.get("enter") == "Add task"
+        assert hints.get("escape") == "Done"  # ≥1 task added this session
+
+
+async def test_footer_edit_mode_shows_save(mem_db):
+    mem_db.add(Todo.new("original"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.screen.query_one(TodoList).focus()
+        await pilot.press("e")
+        await pilot.pause()
+
+        hints = dict(_shown_hints(app.screen))
+        assert hints.get("enter") == "Save"
+        assert hints.get("escape") == "Cancel"
+
+
+async def test_footer_delete_modal_shows_delete_and_cancel(mem_db):
+    mem_db.add(Todo.new("task"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.screen.query_one(TodoList).focus()
+        await pilot.press("d")
+        await pilot.pause()
+        assert isinstance(app.screen, DeleteConfirmScreen)
+
+        hints = dict(_shown_hints(app.screen))
+        assert hints.get("y") == "Delete"
+        assert hints.get("n") == "Cancel"

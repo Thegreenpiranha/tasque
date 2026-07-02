@@ -69,8 +69,10 @@ closes, unchanged-edit posts `Cancelled`, empty/whitespace pulses `-invalid`. Ne
 all four flows through the controller, post-delete cursor rule (next row, clamp to prev if last,
 EmptyState when empty), and `TasqueError`→error-toast guards. Design artefacts:
 `docs/ux/{input-bar,edit-screen,delete-confirmation}.md`, `docs/architecture/feature-5.md`.
-No schema change (`user_version` stays 1). 126 tests, 94% coverage (all modules ≥80%,
-controller 100%), ruff clean.
+No schema change (`user_version` stays 1). Reviewer fixes folded in (mode-dependent
+footer swap, resting empty-state CTA, `TasqueError` re-exported via the controller,
+screen-reader row labels, narrowed `TodoItem` exception). 151 tests, 99% coverage
+(all modules ≥80%; controller / main / input_bar / db 100%), ruff clean.
 
 ## In Progress
 

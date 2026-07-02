@@ -162,6 +162,47 @@ async def test_update_todo_changes_checkbox_without_rebuilding_list():
 
 
 # --------------------------------------------------------------------------- #
+# Accessible label (screen-reader string) — main-screen.md § Accessibility
+# --------------------------------------------------------------------------- #
+
+
+def test_accessible_label_folds_state_before_mount():
+    """Incomplete rows read state-first, then the text — available at construction."""
+    item = TodoItem(Todo(text="Finish the report", id=1, completed=False))
+
+    assert item.accessible_label == "incomplete, Finish the report"
+
+
+def test_accessible_label_reads_completed_for_done_items():
+    item = TodoItem(Todo(text="Water the plants", id=2, completed=True))
+
+    assert item.accessible_label == "completed, Water the plants"
+
+
+def test_accessible_label_folds_in_priority_when_set():
+    """The label speaks priority between state and text (Feature #6 activates it)."""
+    item = TodoItem(Todo(text="Renew passport", id=3, completed=False, priority=3))
+
+    assert item.accessible_label == "incomplete, high priority, Renew passport"
+
+
+async def test_accessible_label_tracks_state_after_toggle():
+    """After a re-render the label reflects the new completion state, not the old."""
+    todo = Todo(text="task", id=5, completed=False)
+    app = _ItemApp(todo)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        item = app.query_one(TodoItem)
+        assert item.accessible_label == "incomplete, task"
+
+        item.todo = Todo(text="task", id=5, completed=True)
+        await pilot.pause()
+
+        assert item.accessible_label == "completed, task"
+
+
+# --------------------------------------------------------------------------- #
 # EmptyState — including the cta reactive seam (Feature #5)
 # --------------------------------------------------------------------------- #
 

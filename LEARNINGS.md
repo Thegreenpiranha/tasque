@@ -174,6 +174,36 @@ number read 94%**. This is the "95% overall hides an untested core path" trap: l
 Same reasoning covers `__main__.main()` — patch `TasqueApp.run` (and the data dir) so the entry point
 is verified without launching a real TUI. See `tests/test_app.py` and `tests/test_main_module.py`.
 
+### 2026-07-02 — [decision] Screens catch domain errors via `TasqueError` re-exported from the controller
+
+CLAUDE.md forbids the UI from importing `db.py`, but screens must still *catch* the domain
+exceptions (`TodoNotFoundError`/`PersistenceError`, base `TasqueError`) — the controller has no
+`app` handle, so the toast has to happen in the screen (the only layer with `self.app`; see
+`docs/architecture/feature-5.md` §5). Resolution: `controller.py` **re-exports** `TasqueError`
+(`from tasque.db import TasqueError` + it is named in `controller.__all__`), and `screens/main.py`
+does `from tasque.controller import TasqueError`. The error *values* still originate in `db.py`
+(raw `sqlite3` never escapes), but the UI's import arrow points only at the controller, never at
+persistence. CLAUDE.md § Architectural Rules → Layer boundaries was updated to name this as the one
+sanctioned exception. Rule and code changed together so the convention can't drift.
+
+### 2026-07-02 — [gotcha] A footer hint on the InputBar's Enter needs `priority=True` to beat the child `Input`
+
+The docked `InputBar`'s mode-dependent footer (`⏎ Add task`/`⏎ Save`, `Esc Cancel`/`Esc Done`) is
+driven by Textual's normal binding-based `Footer` + `check_action`, but two Textual internals bite:
+(1) `Screen._binding_chain` **filters out** any ancestor binding whose key the focused widget
+`check_consume_key`s — `Input` consumes only *printable* characters, so `enter`/`escape` bindings on
+the `InputBar` survive (good); (2) `active_bindings` dedups by key keeping the binding **closest to
+focus first**, and `Input` already binds `enter` (its `submit`, `show=False`) — so an `InputBar`
+`enter` binding is shadowed and never shows. Fix: mark the `InputBar` `enter` binding
+**`priority=True`** — priority replaces a non-priority same-key binding in the dedup *and* fires
+ahead of the focused `Input`, so `Input.Submitted` no longer fires (submit logic moved into
+`action_submit_*` / a `_submit()` helper, not `on_input_submitted`). `escape` needs no priority (the
+`Input` has no `escape` binding). The Cancel↔Done / Add-task↔Save **label** swap can't be done by
+mutating a frozen `Binding`; instead declare two same-key bindings (one per label) and let
+`check_action()` enable exactly one per mode, calling `self.refresh_bindings()` when `mode` or the
+"added this session" flag changes so the `Footer` re-reads. This priority-binding pattern is the one
+to reach for whenever a docked widget hosting an `Input` needs its own footer hints.
+
 <!--
 Example entries (delete these once you have real ones):
 
