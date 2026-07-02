@@ -610,3 +610,112 @@ async def test_edit_failure_shows_error_toast_and_keeps_text(mem_db):
         assert any("Error" in m for m in messages)
         # The persisted row keeps its old text (the write never happened).
         assert mem_db.get(saved.id).text == "original"
+
+
+async def test_toggle_failure_shows_error_toast_and_leaves_row_unchanged(mem_db):
+    """main-screen.md §Error: a failed toggle surfaces a toast, never a crash."""
+    mem_db.add(Todo.new("task"))
+    controller = _make_controller(mem_db)
+
+    def _boom(todo_id):
+        raise TodoNotFoundError(todo_id)
+
+    controller.toggle_todo = _boom  # type: ignore[method-assign]
+    app = _TestApp(controller)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        messages = _capture_notifications(app)
+        app.screen.query_one(TodoList).focus()
+        await pilot.press("space")
+        await pilot.pause()
+
+        assert any("Error" in m for m in messages)
+        assert not app.screen.query_one(TodoItem).has_class("-done")
+
+
+async def test_edit_request_failure_shows_error_toast_and_opens_no_bar(mem_db):
+    """edit-screen.md §Error (row deleted): pressing `e` on a gone row toasts, no bar."""
+    mem_db.add(Todo.new("task"))
+    controller = _make_controller(mem_db)
+
+    def _boom(todo_id):
+        raise TodoNotFoundError(todo_id)
+
+    controller.get_todo = _boom  # type: ignore[method-assign]
+    app = _TestApp(controller)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        messages = _capture_notifications(app)
+        app.screen.query_one(TodoList).focus()
+        await pilot.press("e")
+        await pilot.pause()
+
+        assert any("Error" in m for m in messages)
+        assert app.screen.query_one(InputBar).has_class("-hidden")
+
+
+async def test_delete_request_failure_shows_error_toast_and_opens_no_modal(mem_db):
+    """delete-confirmation.md §Error (row already gone): `d` toasts, no modal."""
+    mem_db.add(Todo.new("task"))
+    controller = _make_controller(mem_db)
+
+    def _boom(todo_id):
+        raise TodoNotFoundError(todo_id)
+
+    controller.get_todo = _boom  # type: ignore[method-assign]
+    app = _TestApp(controller)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        messages = _capture_notifications(app)
+        app.screen.query_one(TodoList).focus()
+        await pilot.press("d")
+        await pilot.pause()
+
+        assert any("Error" in m for m in messages)
+        assert isinstance(app.screen, MainScreen)  # no modal was pushed
+
+
+async def test_delete_confirm_failure_shows_error_toast_and_keeps_row(mem_db):
+    """delete-confirmation.md §Error (persistence): confirmed delete that fails
+    toasts and keeps the list's last good render."""
+    mem_db.add(Todo.new("keep me"))
+    controller = _make_controller(mem_db)
+
+    def _boom(todo_id):
+        raise PersistenceError("disk gone")
+
+    controller.delete_todo = _boom  # type: ignore[method-assign]
+    app = _TestApp(controller)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        messages = _capture_notifications(app)
+        app.screen.query_one(TodoList).focus()
+        await pilot.press("d")
+        await pilot.pause()
+        await pilot.press("y")
+        await pilot.pause()
+
+        assert any("Error" in m for m in messages)
+        assert _item_texts(app.screen) == ["keep me"]
+
+
+# --------------------------------------------------------------------------- #
+# Help binding (placeholder until a later feature)
+# --------------------------------------------------------------------------- #
+
+
+async def test_help_key_shows_placeholder_notification(mem_db):
+    """The `?` binding (main-screen.md keybindings) is wired to a placeholder toast."""
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        messages = _capture_notifications(app)
+        await pilot.press("question_mark")
+        await pilot.pause()
+
+        assert any("Help" in m for m in messages)

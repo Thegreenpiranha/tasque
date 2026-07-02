@@ -129,6 +129,14 @@ async def test_todo_id_returns_the_wrapped_todo_id():
         assert item.todo_id == 99
 
 
+def test_todo_id_is_available_before_mount():
+    """A TodoItem knows its id from construction, before the `todo` reactive is
+    set in on_mount — so `current_todo_id` is correct during list assembly."""
+    item = TodoItem(Todo(text="task", id=7, completed=False))
+
+    assert item.todo_id == 7
+
+
 # --------------------------------------------------------------------------- #
 # update_todo (reactive re-render)
 # --------------------------------------------------------------------------- #

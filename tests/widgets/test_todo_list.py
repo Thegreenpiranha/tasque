@@ -254,6 +254,34 @@ async def test_ctrl_d_does_not_go_past_last_item():
         assert todo_list.current_todo_id == todos[-1].id
 
 
+async def test_ctrl_d_on_empty_list_is_a_noop():
+    """Page-down on an empty list must not crash (main-screen.md edge cases)."""
+    app = _ListApp([])
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        todo_list = app.query_one(TodoList)
+        todo_list.focus()
+        await pilot.press("ctrl+d")
+        await pilot.pause()
+
+        assert todo_list.current_todo_id is None
+
+
+async def test_ctrl_u_on_empty_list_is_a_noop():
+    """Page-up on an empty list must not crash (main-screen.md edge cases)."""
+    app = _ListApp([])
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        todo_list = app.query_one(TodoList)
+        todo_list.focus()
+        await pilot.press("ctrl+u")
+        await pilot.pause()
+
+        assert todo_list.current_todo_id is None
+
+
 # --------------------------------------------------------------------------- #
 # current_todo_id returns None on empty list
 # --------------------------------------------------------------------------- #

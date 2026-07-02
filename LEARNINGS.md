@@ -161,6 +161,19 @@ tests, the clean way to assert a toast fired is to reassign the recorder `app.no
 **kw: messages.append(msg)` *inside* the `run_test()` block, then assert on `messages` — more robust
 than reaching into Textual's private notification deque.
 
+### 2026-07-01 — [testing] Full suite injects `controller=` to bypass disk I/O, hiding the production startup path
+
+The whole test suite constructs `TasqueApp(controller=...)` (and `MainScreen(controller)`) with a
+`Database(":memory:")` to avoid touching the user's data file. The side effect: the code path that
+actually runs for real users — `default_user_db_path()` resolving `%LOCALAPPDATA%\Tasque` and
+`TasqueApp` building a `Database` from that filesystem path — had **0% coverage while the overall
+number read 94%**. This is the "95% overall hides an untested core path" trap: look at coverage
+*per module*, not the total. Fix: cover the real startup explicitly against a **tmp-path** (redirect
+`tasque.app.user_data_dir` to `tmp_path` via monkeypatch; pass `db_path=tmp_path/"tasque.db"` to
+`TasqueApp`) so the production wiring is exercised without ever writing to the real user directory.
+Same reasoning covers `__main__.main()` — patch `TasqueApp.run` (and the data dir) so the entry point
+is verified without launching a real TUI. See `tests/test_app.py` and `tests/test_main_module.py`.
+
 <!--
 Example entries (delete these once you have real ones):
 
