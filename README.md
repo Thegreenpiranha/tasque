@@ -56,10 +56,6 @@ Every feature in this repo was built by Claude Code following a structured agent
 
 The result is a codebase where every design decision is on disk, every non-obvious discovery is logged in `LEARNINGS.md`, and future features can build on past ones without the model needing to hold the whole project in context.
 
-## Reference
-
-- Keith Hubner, *"Claude Code Workflow"*, *Linux Magazine* Issue 308, July 2026 — the article this workflow is based on.
-
 ## Licence
 
 MIT.
