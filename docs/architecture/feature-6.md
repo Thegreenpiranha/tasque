@@ -324,6 +324,39 @@ def on_todo_list_priority_cycle_requested(self, event: TodoList.PriorityCycleReq
 - **`TasqueError` guard** matches the four existing handlers (row vanished mid-cycle → error toast, no
   crash).
 
+**Toggle-completion must become sort-aware (gap surfaced by the researcher, `priority.md` §Edge
+cases / OQ4).** The shipped Feature #5 `on_todo_list_toggle_requested` handler does an in-place
+`update_todo(updated)` — correct in creation order (the row doesn't move). But in **priority sort**,
+completing/uncompleting a task moves it between the active and done bands, so an in-place re-render
+would leave the list mis-ordered. The handler must branch on `self._sort`, like the cycle handler:
+```python
+def on_todo_list_toggle_requested(self, event) -> None:
+    event.stop()
+    todo_list = self.query_one(TodoList)
+    index = todo_list.index                      # capture BEFORE the re-sort
+    try:
+        updated = self._controller.toggle_todo(event.todo_id)
+    except TasqueError as exc:
+        self.app.notify(f"Error: {exc}", severity="error"); return
+    if self._sort is TodoSort.PRIORITY:
+        await self.refresh_todos()               # re-sort; then land by INDEX, not id
+        tl = self.query_one(TodoList)
+        if len(tl) > 0:
+            tl.index = min(index, len(tl) - 1)   # stay on position → next active slides in
+    else:
+        todo_list.update_todo(updated)           # creation order: in-place, cursor preserved
+    self._update_counts(self._controller.list_todos())
+```
+**Cursor rule is deliberately different from the cycle handler.** The cycle handler uses
+`keep_id` — the cursor *follows the task* it just re-prioritised (you're still working with that
+task). The toggle handler uses **`keep_id`-free, index-based landing** — the cursor **stays on
+position**, so the just-completed task slides down to the done band and the **next active task takes
+its place** (user decision, 2026-07-03). This mirrors the post-delete cursor rule from
+`feature-5.md` §5 ("land on the next row"): completing a task means "move on to the next thing," not
+"follow it into the done pile." (Implementer note: the completing case slides the row *down*, so the
+old index now holds the next active task; the uncompleting case slides *up* into the active band —
+index-clamp still lands on a sensible neighbouring row. Don't reach for `keep_id` here.)
+
 **Sort toggle (`s`) on MainScreen:**
 ```python
 Binding("s", "cycle_sort", "Sort", show=True)   # add to MainScreen.BINDINGS
@@ -334,6 +367,20 @@ def action_cycle_sort(self) -> None:
     await self.refresh_todos(keep_id=keep)
     self.app.notify(f"Sorted by {self._sort.name.lower()}", severity="information")
 ```
+Sort **is** the one place the cursor follows the task by `keep_id` (you asked to re-sort, and staying
+on the same task across the reorder is the least disorienting).
+
+**Persistent sort-mode indicator (`priority.md` §`s` / OQ2, user-confirmed):** the toast vanishes, so
+the active mode is echoed in the panel **border-title** — but only when non-default, so creation order
+stays clutter-free. `_update_counts` gains a suffix:
+```python
+title = f"Inbox · {active} active · {done} done"
+if self._sort is TodoSort.PRIORITY:
+    title += " · by priority"
+self.query_one("#list-panel", Container).border_title = title
+```
+This extends `main-screen.md`'s border-title format (reconciled there); the `· by priority` suffix
+right-truncates first on a narrow terminal (a soft cue the toast already delivered).
 
 **`refresh_todos` gains `keep_id`:**
 ```python
@@ -369,19 +416,33 @@ Question #2 — this realises it).
 > seams the implementer wires to whatever the researcher specs — treat the values below as the
 > *default fallback* if the researcher confirms the letter tags.
 
-**CSS: no change needed *if the researcher confirms the letter tags*.** The stylesheet already ships
-the complete #6 colour rules:
-```
-TodoItem.-priority-high   > #priority { color: $error; }
-TodoItem.-priority-medium > #priority { color: $warning; }
-TodoItem.-priority-low    > #priority { color: $primary; }
-```
-and the `#priority` slot is already `width: 4`. Colour is never the sole signal — the placeholder
-`(H)/(M)/(L)` letter tag carries the meaning in monochrome (Principle 4). `-done` already dims
-`#meta`; priority tag colour composes with the cursor highlight because it colours the *tag*, not the
-row (per `main-screen.md` §High-priority item). The `(!)` overdue echo is **Feature #7**, not #6 — #6
-renders only the priority token or blank. If the researcher changes the token or its width, the `.tcss`
-and `#priority` slot adjust accordingly.
+**Researcher outcome (`docs/ux/priority.md`, 2026-07-03):** the letter tags `(H)/(M)/(L)` and the
+`width: 4` slot are **confirmed** as the token; render `(H) `/`(M) `/`(L) `/four-spaces into
+`#priority`. Two CSS deltas were approved by the user and are now the spec — so §1's "no `.tcss`
+change" is **superseded**: the stylesheet does change, in exactly two small ways:
+
+1. **Low colour `$primary → $text-muted`** (user-confirmed): the severity ramp reads red → amber →
+   calm; low recedes rather than competing on the accent hue.
+   ```
+   TodoItem.-priority-high   > #priority { color: $error; }        /* unchanged */
+   TodoItem.-priority-medium > #priority { color: $warning; }      /* unchanged */
+   TodoItem.-priority-low    > #priority { color: $text-muted; }   /* was $primary */
+   ```
+   This also edits `main-screen.md`'s Color Scheme table (reconciled in the same change) so the specs
+   don't drift.
+2. **Add a done-dims-priority rule** (correctness fix — the shipped `.-done` rules cover
+   `#title`/`#checkbox`/`#meta` but miss `#priority`, though `main-screen.md` §Completed says priority
+   dims too):
+   ```
+   TodoItem.-done > #priority { color: $text-disabled; }
+   ```
+   **Placement is load-bearing:** this has equal specificity to the `.-priority-*` rules (type + one
+   class + id), so it **must appear *after* the `.-priority-*` block** in `tasque.tcss` — otherwise a
+   done high-priority tag stays bright `$error` instead of dimming.
+
+Colour is never the sole signal — the letter tag carries meaning in monochrome (Principle 4); priority
+tints the *tag* only, so it composes with the cursor highlight and `-done` dim. The `(!)` overdue echo
+is **Feature #7**, not #6 — #6 renders only the priority token or blank.
 
 **`todo_item.py` changes** (activating the reserved slot):
 ```python

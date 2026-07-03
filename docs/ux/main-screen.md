@@ -42,7 +42,7 @@ Full main screen. Three stacked regions: **Header** (top, 1 row), **List panel**
 
 ### Region allocation
 - **Header** — fixed `height: 1`. Textual `Header()` (left: title "Tasque"; right: clock, optional). Provides the app's identity; no interaction.
-- **List panel** — `height: 1fr` (consumes everything between header and footer). A bordered container (`border: round $primary;` focused, `$panel`/muted when blurred) whose `border-title` holds the **context line**: `"{list name} · {N} active · {M} done"`. The `TodoList` (`ListView`) scrolls inside it.
+- **List panel** — `height: 1fr` (consumes everything between header and footer). A bordered container (`border: round $primary;` focused, `$panel`/muted when blurred) whose `border-title` holds the **context line**: `"{list name} · {N} active · {M} done"`, with an optional ` · by priority` suffix appended only when the priority sort mode is active (#6; default creation-order shows no suffix — see `priority.md` §`s`). The `TodoList` (`ListView`) scrolls inside it.
 - **Footer** — fixed `height: 1`. Textual `Footer()` rendering the visible `BINDINGS`. Mirrors lazygit/k9s: `key  label` pairs, separated by spacing, in priority order.
 
 ### Per-row column layout (the `TodoItem` anatomy)
@@ -98,7 +98,7 @@ One row, composed of the slots in the layout table. Stateless re: persistence �
 | `completed=True` | `-done` | checkbox `[x]`, title dimmed + strikethrough, priority/category/due dimmed |
 | `priority == high` | `-priority-high` | priority tag `(H)` colored `$error` |
 | `priority == medium` | `-priority-medium` | `(M)` colored `$warning` |
-| `priority == low` | `-priority-low` | `(L)` colored `$primary`/muted |
+| `priority == low` | `-priority-low` | `(L)` colored `$text-muted` (de-emphasised; see #6 / `priority.md`) |
 | `priority is None` | *(none)* | priority slot blank |
 | `due_date < today` & not done | `-overdue` | due shown as `OVERDUE <date>`, colored `$error`, bold (**#7**) |
 | `due_date == today` & not done | `-due-today` | due shown as `due today`, colored `$warning` (**#7**) |
@@ -122,7 +122,7 @@ Declared as Textual theme tokens in `tasque.tcss` so dark/light themes both work
 | Panel border (blurred) | `$panel-darken-1` | muted | muted | — |
 | Priority high | `$error` | red | red | text tag `(H)` |
 | Priority medium | `$warning` | amber/yellow | amber | text tag `(M)` |
-| Priority low | `$primary` (muted) | blue | blue | text tag `(L)` |
+| Priority low | `$text-muted` | dim grey | dim grey | text tag `(L)` |
 | Overdue | `$error` bold | red | red | word `OVERDUE` + `(!)` priority echo |
 | Due today | `$warning` | amber | amber | words `due today` |
 | Success / confirmation toast | `$success` | green | green | toast text + `✓`/`Done:` label |
