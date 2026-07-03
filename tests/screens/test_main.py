@@ -13,6 +13,7 @@ import pytest
 from textual.app import App
 from textual.widgets import Input, Static
 
+from tasque.app import TasqueApp
 from tasque.controller import TodoController
 from tasque.db import Database, PersistenceError, TodoNotFoundError
 from tasque.models import Priority, Todo
@@ -1214,3 +1215,39 @@ async def test_toggle_in_created_mode_still_works_in_place(mem_db):
         # Item is done, list still has one item, cursor unchanged
         item = screen.query_one(TodoItem)
         assert item.has_class("-done")
+
+
+# --------------------------------------------------------------------------- #
+# Done dims the priority tag — the load-bearing CSS source order (Feature #6)
+# --------------------------------------------------------------------------- #
+#
+# Uses the real TasqueApp so tasque.tcss is actually loaded (the bare _TestApp /
+# _ItemApp harnesses don't set CSS_PATH, so their computed colours are default).
+# A class assertion (-done + -priority-high) can't catch a regression here: both
+# classes are present regardless of rule order. Only the *resolved colour* proves
+# the `.-done > #priority` rule wins the equal-specificity tie — which it does
+# only while it sits AFTER the `.-priority-*` block (priority.md §CSS,
+# LEARNINGS 2026-07-03). Moving that rule up would leave a done HIGH tag bright
+# $error and fail both assertions below.
+
+
+async def test_done_high_priority_tag_dims_instead_of_error_colour(mem_db):
+    active = mem_db.add(Todo.new("active high"))
+    mem_db.set_priority(active.id, Priority.HIGH)
+    done = mem_db.add(Todo.new("done high"))
+    mem_db.set_priority(done.id, Priority.HIGH)
+    mem_db.set_completed(done.id, True)
+
+    app = TasqueApp(controller=_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        items = {item.todo_id: item for item in app.screen.query(TodoItem)}
+        active_colour = items[active.id].query_one("#priority", Static).styles.color
+        done_priority_colour = items[done.id].query_one("#priority", Static).styles.color
+        done_title_colour = items[done.id].query_one("#title", Static).styles.color
+
+        # The done tag drops the bright $error priority colour ...
+        assert done_priority_colour != active_colour
+        # ... and dims to the same disabled colour as the done row's title.
+        assert done_priority_colour == done_title_colour

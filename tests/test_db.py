@@ -217,6 +217,26 @@ def test_set_priority_raises_for_missing_id(db):
         db.set_priority(999, Priority.HIGH)
 
 
+def test_priority_survives_file_reopen_without_remigrating(tmp_path):
+    """A priority written to disk survives a close/reopen, and migration 0002
+    is not re-run on the already-v2 database.
+
+    Every other set_priority test uses ``:memory:``; this exercises the real
+    disk round-trip through ``_row_to_todo`` with a non-NULL priority and pins
+    that reopening a v2 DB does not re-apply the additive column migration
+    (which would raise a duplicate-column MigrationError).
+    """
+    path = tmp_path / "tasque.db"
+    with Database(path) as first:
+        saved = first.add(Todo.new("important"))
+        first.set_priority(saved.id, Priority.HIGH)
+
+    with Database(path) as second:
+        fetched = second.get(saved.id)
+        assert fetched.priority is Priority.HIGH
+        assert second.schema_version == 2  # 0002 not re-run
+
+
 def test_set_priority_returns_todo(db):
     saved = db.add(Todo.new("task"))
     result = db.set_priority(saved.id, Priority.MEDIUM)
@@ -288,6 +308,19 @@ def test_list_todos_priority_sort_done_demoted_below_active(db):
     result = db.list_todos(sort=TodoSort.PRIORITY)
     ids = [t.id for t in result]
     assert ids.index(active_none.id) < ids.index(done_high.id)
+
+
+def test_list_todos_created_sort_does_not_demote_done(db):
+    """CREATED sort keeps a completed item in its creation position — the two
+    modes answer different questions (feature-6.md §3): only PRIORITY demotes
+    done items; CREATED interleaves them in place.
+    """
+    done_first = db.add(Todo.new("done first"))
+    db.set_completed(done_first.id, True)
+    active_second = db.add(Todo.new("active second"))
+
+    ids = [t.id for t in db.list_todos(sort=TodoSort.CREATED)]
+    assert ids == [done_first.id, active_second.id]  # done NOT pushed below active
 
 
 # --------------------------------------------------------------------------- #

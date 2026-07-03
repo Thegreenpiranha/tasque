@@ -257,3 +257,18 @@ the first-added task's id. To write a test where "cursor is on the high-priority
 and follows it after", the high-priority task must be added first (so it owns index 0 in creation
 sort). Reversing insertion order silently produces a different `keep_id` and different cursor
 behaviour after sort.
+
+### 2026-07-03 — [testing] CSS load-bearing rules need observable-colour tests, not class-presence tests
+
+Class-based assertions pass regardless of stylesheet rule order: `has_class("-done")` and
+`has_class("-priority-high")` are both true on a done high-priority row whether or not the
+`.-done > #priority` rule sits after the `.-priority-*` block, so they cannot catch a regression of
+an equal-specificity source-order fix — the tag would silently go back to bright `$error` and every
+class test would stay green. Test the **resolved colour** instead: query `widget.styles.color` under
+the **real `TasqueApp`** (the bare `_ItemApp`/`_TestApp` harnesses don't set `CSS_PATH`, so
+`tasque.tcss` never loads and every colour resolves to the default) and assert the done tag's colour
+differs from an active high tag's and equals the done title's disabled colour. Mutation-verify the
+guard: invert the rule order, confirm the test fails (done `#priority` resolves to
+`Color(185, 60, 91)` = `$error`, equal to the active tag), then restore. Reach for a computed-colour
+test whenever correctness rides on CSS specificity/source-order rather than on which classes are
+present. Added `test_done_high_priority_tag_dims_instead_of_error_colour` in `tests/screens/test_main.py`.
