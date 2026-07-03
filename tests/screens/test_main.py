@@ -1,4 +1,4 @@
-"""Integration tests for MainScreen (Feature #4).
+"""Integration tests for MainScreen (Features #4, #6).
 
 Tests push MainScreen into a minimal app backed by an in-memory Database and
 assert on user-visible DOM state via Textual's `App.run_test()` harness.
@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import pytest
 from textual.app import App
-from textual.widgets import Input
+from textual.widgets import Input, Static
 
+from tasque.app import TasqueApp
 from tasque.controller import TodoController
 from tasque.db import Database, PersistenceError, TodoNotFoundError
-from tasque.models import Todo
+from tasque.models import Priority, Todo
 from tasque.screens.delete_confirm import DeleteConfirmScreen
 from tasque.screens.main import MainScreen
 from tasque.widgets.empty_state import EmptyState
@@ -869,3 +870,384 @@ async def test_footer_delete_modal_shows_delete_and_cancel(mem_db):
         hints = dict(_shown_hints(app.screen))
         assert hints.get("y") == "Delete"
         assert hints.get("n") == "Cancel"
+
+
+# --------------------------------------------------------------------------- #
+# Priority cycle — `p` key (Feature #6)
+# --------------------------------------------------------------------------- #
+
+
+def _priority_text(screen) -> str:
+    """Text content of the #priority slot on the first TodoItem."""
+    return str(screen.query_one(TodoItem).query_one("#priority", Static).render())
+
+
+async def test_p_cycles_priority_none_to_low(mem_db):
+    mem_db.add(Todo.new("task"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one(TodoList).focus()
+        await pilot.press("p")
+        await pilot.pause()
+
+        assert "(L)" in _priority_text(screen)
+        assert screen.query_one(TodoItem).has_class("-priority-low")
+
+
+async def test_p_cycles_priority_low_to_medium(mem_db):
+    mem_db.add(Todo.new("task"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one(TodoList).focus()
+        await pilot.press("p")
+        await pilot.pause()
+        await pilot.press("p")
+        await pilot.pause()
+
+        assert "(M)" in _priority_text(screen)
+        assert screen.query_one(TodoItem).has_class("-priority-medium")
+
+
+async def test_p_cycles_priority_to_high(mem_db):
+    mem_db.add(Todo.new("task"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one(TodoList).focus()
+        for _ in range(3):
+            await pilot.press("p")
+            await pilot.pause()
+
+        assert "(H)" in _priority_text(screen)
+        assert screen.query_one(TodoItem).has_class("-priority-high")
+
+
+async def test_p_cycles_priority_high_back_to_none(mem_db):
+    mem_db.add(Todo.new("task"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one(TodoList).focus()
+        for _ in range(4):
+            await pilot.press("p")
+            await pilot.pause()
+
+        text = _priority_text(screen).strip()
+        assert text == ""
+        item = screen.query_one(TodoItem)
+        assert not item.has_class("-priority-high")
+        assert not item.has_class("-priority-medium")
+        assert not item.has_class("-priority-low")
+
+
+async def test_p_in_created_mode_keeps_cursor_index(mem_db):
+    """In creation-order sort, pressing p keeps the cursor on the same row (no re-sort)."""
+    mem_db.add(Todo.new("first"))
+    mem_db.add(Todo.new("second"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        todo_list = screen.query_one(TodoList)
+        todo_list.focus()
+        # Move to second row
+        await pilot.press("j")
+        await pilot.pause()
+        second_id = todo_list.current_todo_id
+
+        await pilot.press("p")
+        await pilot.pause()
+
+        # Cursor must stay on the same task
+        assert todo_list.current_todo_id == second_id
+
+
+async def test_p_on_empty_list_is_noop(mem_db):
+    """p on an empty list does not crash."""
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one(TodoList).focus()
+        await pilot.press("p")  # no row; should be silent
+        await pilot.pause()
+
+        assert len(screen.query(TodoItem)) == 0
+
+
+async def test_p_failure_shows_error_toast(mem_db):
+    """If cycle_priority raises (row deleted), an error toast appears, no crash."""
+    mem_db.add(Todo.new("task"))
+    controller = _make_controller(mem_db)
+
+    def _boom(todo_id):
+        raise TodoNotFoundError(todo_id)
+
+    controller.cycle_priority = _boom  # type: ignore[method-assign]
+    app = _TestApp(controller)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        messages = _capture_notifications(app)
+        app.screen.query_one(TodoList).focus()
+        await pilot.press("p")
+        await pilot.pause()
+
+        assert any("Error" in m for m in messages)
+
+
+# --------------------------------------------------------------------------- #
+# Sort toggle — `s` key (Feature #6)
+# --------------------------------------------------------------------------- #
+
+
+async def test_s_reorders_list_by_priority(mem_db):
+    """After pressing s, high-priority tasks appear before low-priority ones."""
+    low = mem_db.add(Todo.new("low"))
+    mem_db.set_priority(low.id, Priority.LOW)
+    high = mem_db.add(Todo.new("high"))
+    mem_db.set_priority(high.id, Priority.HIGH)
+
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        # Initially in creation order: low, high
+        items = list(screen.query(TodoItem))
+        assert items[0].todo_id == low.id
+
+        await pilot.press("s")
+        await pilot.pause()
+
+        items = list(screen.query(TodoItem))
+        assert items[0].todo_id == high.id  # high first after sort
+
+
+async def test_s_keeps_cursor_on_same_task(mem_db):
+    """The cursor follows the current task across a sort toggle (keep_id)."""
+    low = mem_db.add(Todo.new("low"))
+    mem_db.set_priority(low.id, Priority.LOW)
+    mem_db.add(Todo.new("high-priority"))
+
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        todo_list = screen.query_one(TodoList)
+        todo_list.focus()
+        # Cursor starts on "low" (index 0, first row)
+        task_id_before = todo_list.current_todo_id
+
+        await pilot.press("s")
+        await pilot.pause()
+
+        # After sort, cursor should still be on the same task
+        assert todo_list.current_todo_id == task_id_before
+
+
+async def test_s_shows_sort_notification(mem_db):
+    mem_db.add(Todo.new("task"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        messages = _capture_notifications(app)
+        await pilot.press("s")
+        await pilot.pause()
+
+        assert any("priority" in m.lower() for m in messages)
+
+
+async def test_s_adds_by_priority_to_border_title(mem_db):
+    """The border-title gains '· by priority' when sort is PRIORITY."""
+    mem_db.add(Todo.new("task"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        panel = screen.query_one("#list-panel")
+
+        assert "by priority" not in (panel.border_title or "")
+
+        await pilot.press("s")
+        await pilot.pause()
+
+        assert "by priority" in (panel.border_title or "")
+
+
+async def test_s_toggle_back_removes_by_priority_from_border_title(mem_db):
+    """Toggling back to creation order removes the '· by priority' suffix."""
+    mem_db.add(Todo.new("task"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        await pilot.press("s")
+        await pilot.pause()
+        await pilot.press("s")
+        await pilot.pause()
+
+        panel = screen.query_one("#list-panel")
+        assert "by priority" not in (panel.border_title or "")
+
+
+async def test_footer_shows_priority_and_sort_hints(mem_db):
+    """p Priority and s Sort show in the footer while the list has focus."""
+    mem_db.add(Todo.new("task"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.screen.query_one(TodoList).focus()
+        await pilot.pause()
+
+        hints = dict(_shown_hints(app.screen))
+        assert hints.get("p") == "Priority"
+        assert hints.get("s") == "Sort"
+
+
+# --------------------------------------------------------------------------- #
+# Priority cycle in PRIORITY sort mode (Feature #6)
+# --------------------------------------------------------------------------- #
+
+
+async def test_p_in_priority_mode_keeps_cursor_on_cycled_task(mem_db):
+    """In priority sort, pressing p re-sorts; cursor follows the cycled task (keep_id).
+
+    Setup: high (id=1, added first) and low (id=2, added second).
+    Creation sort: [high, low] — cursor on high (index 0).
+    After s: priority sort [high (HIGH), low (LOW)] — same idx-0 position.
+    After p: high cycles HIGH→None, sinks to idx=1; cursor must follow high to idx=1.
+    """
+    # high is added FIRST so it is at index 0 in creation sort (cursor there on load).
+    high = mem_db.add(Todo.new("high"))
+    mem_db.set_priority(high.id, Priority.HIGH)
+    low = mem_db.add(Todo.new("low"))
+    mem_db.set_priority(low.id, Priority.LOW)
+
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        todo_list = screen.query_one(TodoList)
+        todo_list.focus()
+
+        # Initial cursor on high (creation sort, idx=0, keep_id=high.id on sort).
+        assert todo_list.current_todo_id == high.id
+
+        # Switch to priority sort: high(HIGH) still at idx=0, low(LOW) at idx=1.
+        # keep_id=high.id → highlight_id keeps cursor on high.
+        await pilot.press("s")
+        await pilot.pause()
+        assert todo_list.current_todo_id == high.id
+
+        # Cycle high: HIGH → None. It sinks below low (NULLS LAST).
+        # New order: [low (idx=0), high (idx=1)]. Cursor follows high to idx=1.
+        await pilot.press("p")
+        await pilot.pause()
+
+        assert todo_list.current_todo_id == high.id
+
+
+# --------------------------------------------------------------------------- #
+# Toggle complete in PRIORITY sort mode (Feature #6)
+# --------------------------------------------------------------------------- #
+
+
+async def test_toggle_in_priority_mode_cursor_stays_on_position(mem_db):
+    """Completing a task in priority sort leaves the cursor at the same index
+    (the next active task slides in), NOT following the completed task down."""
+    high = mem_db.add(Todo.new("high"))
+    mem_db.set_priority(high.id, Priority.HIGH)
+    low = mem_db.add(Todo.new("low"))
+    mem_db.set_priority(low.id, Priority.LOW)
+
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        todo_list = screen.query_one(TodoList)
+        todo_list.focus()
+
+        # Switch to priority sort: high appears first (index 0), low second
+        await pilot.press("s")
+        await pilot.pause()
+        assert todo_list.current_todo_id == high.id  # cursor on "high"
+
+        # Complete "high" — it should slide to the done band at the bottom
+        await pilot.press("space")
+        await pilot.pause()
+
+        # Cursor stays at index 0 — "low" now occupies that slot
+        assert todo_list.current_todo_id == low.id
+
+
+async def test_toggle_in_created_mode_still_works_in_place(mem_db):
+    """In creation-order mode, toggle is still an in-place update (no re-sort)."""
+    mem_db.add(Todo.new("task"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one(TodoList).focus()
+        await pilot.press("space")
+        await pilot.pause()
+
+        # Item is done, list still has one item, cursor unchanged
+        item = screen.query_one(TodoItem)
+        assert item.has_class("-done")
+
+
+# --------------------------------------------------------------------------- #
+# Done dims the priority tag — the load-bearing CSS source order (Feature #6)
+# --------------------------------------------------------------------------- #
+#
+# Uses the real TasqueApp so tasque.tcss is actually loaded (the bare _TestApp /
+# _ItemApp harnesses don't set CSS_PATH, so their computed colours are default).
+# A class assertion (-done + -priority-high) can't catch a regression here: both
+# classes are present regardless of rule order. Only the *resolved colour* proves
+# the `.-done > #priority` rule wins the equal-specificity tie — which it does
+# only while it sits AFTER the `.-priority-*` block (priority.md §CSS,
+# LEARNINGS 2026-07-03). Moving that rule up would leave a done HIGH tag bright
+# $error and fail both assertions below.
+
+
+async def test_done_high_priority_tag_dims_instead_of_error_colour(mem_db):
+    active = mem_db.add(Todo.new("active high"))
+    mem_db.set_priority(active.id, Priority.HIGH)
+    done = mem_db.add(Todo.new("done high"))
+    mem_db.set_priority(done.id, Priority.HIGH)
+    mem_db.set_completed(done.id, True)
+
+    app = TasqueApp(controller=_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        items = {item.todo_id: item for item in app.screen.query(TodoItem)}
+        active_colour = items[active.id].query_one("#priority", Static).styles.color
+        done_priority_colour = items[done.id].query_one("#priority", Static).styles.color
+        done_title_colour = items[done.id].query_one("#title", Static).styles.color
+
+        # The done tag drops the bright $error priority colour ...
+        assert done_priority_colour != active_colour
+        # ... and dims to the same disabled colour as the done row's title.
+        assert done_priority_colour == done_title_colour

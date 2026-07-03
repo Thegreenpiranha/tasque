@@ -77,7 +77,7 @@ This file is loaded into Claude Code's context at the start of every session. It
 
 A feature is **Done** in PLAN.md only when:
 
-1. Code is written and merged to the working branch.
+1. Code is written and committed to the feature's own branch (`feature-<n>-<slug>`); the branch is merged into `main` by the maintainer once the feature is reviewed (see **Branching & Commits** below).
 2. Tests pass (`uv run pytest`) and coverage hasn't dropped; lint is clean (`uv run ruff check`).
 3. PLAN.md is updated (moved from In Progress → Done with the completion date).
 4. LEARNINGS.md is updated if anything non-obvious was discovered.
@@ -92,3 +92,20 @@ A feature is **Done** in PLAN.md only when:
 5. Save UX specs to `docs/ux/<feature>.md` before writing UI code.
 6. Append discoveries to `LEARNINGS.md` as you find them.
 7. Architect designs are saved to `docs/architecture/feature-<n>.md` and PLAN.md is moved to In Progress before the implementer starts. In-chat design state doesn't count as durable.
+
+## Branching & Commits
+
+Adopted from **Feature #6 onward**. Features #1–#5 landed directly on `main`; that is the old model.
+
+- **One branch per feature.** Each feature is built on its own branch named `feature-<n>-<slug>`
+  (e.g. `feature-6-priority`), cut from `main`. `main` holds **shipped features only** — one merge
+  per completed, reviewed feature, so its history reads as the release log.
+- **`main` is merge-only, and the merge is the maintainer's.** Claude must **never** commit or push
+  directly to `main`. Merging a finished feature branch into `main` is done by the maintainer (Sean)
+  in PowerShell, only once the feature meets the **Definition of Done** and has been reviewed. If a
+  session ever starts on `main`, branch first before making any commit.
+- **Commit freely on the feature branch.** Claude may commit directly to the active feature branch
+  each time a phase (research / architect / implementer / tester / reviewer) completes cleanly —
+  roughly one commit per phase. Give each commit its own accurate subject; don't reuse a prior
+  phase's message (see the Feature #5 history for why — two sequential commits shared the subject
+  "fix: address reviewer findings", making the log ambiguous).

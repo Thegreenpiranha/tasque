@@ -1,4 +1,4 @@
-"""Behavioural tests for TodoItem and EmptyState (Feature #4).
+"""Behavioural tests for TodoItem and EmptyState (Features #4, #6).
 
 Tests run through Textual's async `App.run_test()` harness so they assert on
 observable DOM state, not private implementation details.
@@ -9,7 +9,7 @@ from __future__ import annotations
 from textual.app import App, ComposeResult
 from textual.widgets import Static
 
-from tasque.models import Todo
+from tasque.models import Priority, Todo
 from tasque.widgets.empty_state import EmptyState
 from tasque.widgets.todo_item import TodoItem
 from tasque.widgets.todo_list import TodoList
@@ -246,3 +246,178 @@ async def test_empty_state_clears_cta_when_reset_to_empty():
         content = str(empty.render())
         assert "No tasks yet" in content
         assert "some hint" not in content
+
+
+# --------------------------------------------------------------------------- #
+# Priority tag rendering (Feature #6)
+# --------------------------------------------------------------------------- #
+
+
+async def test_priority_none_renders_blank_slot():
+    """A todo with no priority shows 4 spaces in the #priority slot."""
+    todo = Todo(text="task", id=1, completed=False, priority=None)
+    app = _ItemApp(todo)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        item = app.query_one(TodoItem)
+        priority_widget = item.query_one("#priority", Static)
+
+        assert str(priority_widget.render()).strip() == ""
+
+
+async def test_priority_high_renders_H_tag():
+    todo = Todo(text="task", id=1, completed=False, priority=Priority.HIGH)
+    app = _ItemApp(todo)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        item = app.query_one(TodoItem)
+        priority_widget = item.query_one("#priority", Static)
+
+        assert "(H)" in str(priority_widget.render())
+
+
+async def test_priority_medium_renders_M_tag():
+    todo = Todo(text="task", id=1, completed=False, priority=Priority.MEDIUM)
+    app = _ItemApp(todo)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        item = app.query_one(TodoItem)
+        priority_widget = item.query_one("#priority", Static)
+
+        assert "(M)" in str(priority_widget.render())
+
+
+async def test_priority_low_renders_L_tag():
+    todo = Todo(text="task", id=1, completed=False, priority=Priority.LOW)
+    app = _ItemApp(todo)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        item = app.query_one(TodoItem)
+        priority_widget = item.query_one("#priority", Static)
+
+        assert "(L)" in str(priority_widget.render())
+
+
+# --------------------------------------------------------------------------- #
+# Priority CSS class (Feature #6)
+# --------------------------------------------------------------------------- #
+
+
+async def test_priority_high_sets_priority_high_class():
+    todo = Todo(text="task", id=1, completed=False, priority=Priority.HIGH)
+    app = _ItemApp(todo)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        item = app.query_one(TodoItem)
+
+        assert item.has_class("-priority-high")
+        assert not item.has_class("-priority-medium")
+        assert not item.has_class("-priority-low")
+
+
+async def test_priority_medium_sets_priority_medium_class():
+    todo = Todo(text="task", id=1, completed=False, priority=Priority.MEDIUM)
+    app = _ItemApp(todo)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        item = app.query_one(TodoItem)
+
+        assert item.has_class("-priority-medium")
+        assert not item.has_class("-priority-high")
+        assert not item.has_class("-priority-low")
+
+
+async def test_priority_low_sets_priority_low_class():
+    todo = Todo(text="task", id=1, completed=False, priority=Priority.LOW)
+    app = _ItemApp(todo)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        item = app.query_one(TodoItem)
+
+        assert item.has_class("-priority-low")
+        assert not item.has_class("-priority-high")
+        assert not item.has_class("-priority-medium")
+
+
+async def test_priority_none_sets_no_priority_class():
+    todo = Todo(text="task", id=1, completed=False, priority=None)
+    app = _ItemApp(todo)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        item = app.query_one(TodoItem)
+
+        assert not item.has_class("-priority-high")
+        assert not item.has_class("-priority-medium")
+        assert not item.has_class("-priority-low")
+
+
+async def test_update_todo_changes_priority_tag_without_rebuild():
+    """update_todo re-renders the #priority slot via the reactive."""
+    todo = Todo(text="task", id=5, completed=False, priority=None)
+    app = _ItemApp(todo)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        todo_list = app.query_one(TodoList)
+
+        updated = Todo(text="task", id=5, completed=False, priority=Priority.HIGH)
+        todo_list.update_todo(updated)
+        await pilot.pause()
+
+        item = app.query_one(TodoItem)
+        priority_widget = item.query_one("#priority", Static)
+        assert "(H)" in str(priority_widget.render())
+        assert item.has_class("-priority-high")
+
+
+async def test_update_todo_clears_priority_class_when_set_to_none():
+    """update_todo removes the priority class when priority is cleared."""
+    todo = Todo(text="task", id=5, completed=False, priority=Priority.MEDIUM)
+    app = _ItemApp(todo)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        todo_list = app.query_one(TodoList)
+
+        cleared = Todo(text="task", id=5, completed=False, priority=None)
+        todo_list.update_todo(cleared)
+        await pilot.pause()
+
+        item = app.query_one(TodoItem)
+        assert not item.has_class("-priority-high")
+        assert not item.has_class("-priority-medium")
+        assert not item.has_class("-priority-low")
+
+
+# --------------------------------------------------------------------------- #
+# Accessible label with priority (Feature #6)
+# --------------------------------------------------------------------------- #
+
+
+def test_accessible_label_includes_high_priority():
+    item = TodoItem(Todo(text="task", id=1, completed=False, priority=Priority.HIGH))
+    assert "high priority" in item.accessible_label
+
+
+def test_accessible_label_includes_medium_priority():
+    item = TodoItem(Todo(text="task", id=1, completed=False, priority=Priority.MEDIUM))
+    assert "medium priority" in item.accessible_label
+
+
+def test_accessible_label_includes_low_priority():
+    item = TodoItem(Todo(text="task", id=1, completed=False, priority=Priority.LOW))
+    assert "low priority" in item.accessible_label
+
+
+def test_accessible_label_omits_priority_when_none():
+    item = TodoItem(Todo(text="task", id=1, completed=False, priority=None))
+    label = item.accessible_label
+    assert "priority" not in label

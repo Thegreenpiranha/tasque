@@ -21,14 +21,14 @@ from dataclasses import replace
 from typing import Protocol, runtime_checkable
 
 from tasque.db import Database, TasqueError
-from tasque.models import Todo
+from tasque.models import Priority, Todo, TodoSort, next_priority
 
 logger = logging.getLogger("tasque.controller")
 
-# Re-exported so the UI layer catches domain errors through the controller —
-# the layer it is allowed to import — rather than reaching into ``db.py``
-# directly (see CLAUDE.md § Architectural Rules → Layer boundaries).
-__all__ = ["Command", "TasqueError", "TodoController"]
+# Re-exported so the UI layer accesses domain types through the controller —
+# the layer it is allowed to import — rather than reaching into ``db.py`` or
+# ``models.py`` directly (see CLAUDE.md § Architectural Rules → Layer boundaries).
+__all__ = ["Command", "TasqueError", "TodoController", "TodoSort"]
 
 
 # --------------------------------------------------------------------------- #
@@ -135,6 +135,22 @@ class _DeleteCommand:
         self._db.add(self.result)
 
 
+class _CyclePriorityCommand:
+    def __init__(self, db: Database, todo_id: int) -> None:
+        self._db = db
+        self._todo_id = todo_id
+        self._prev: Priority | None = None
+        self.result: Todo | None = None
+
+    def execute(self) -> None:
+        current = self._db.get(self._todo_id)  # raises TodoNotFoundError if gone
+        self._prev = current.priority
+        self.result = self._db.set_priority(self._todo_id, next_priority(current.priority))
+
+    def undo(self) -> None:  # pragma: no cover - Feature #9 seam (no public undo yet)
+        self._db.set_priority(self._todo_id, self._prev)
+
+
 # --------------------------------------------------------------------------- #
 # Controller
 # --------------------------------------------------------------------------- #
@@ -153,9 +169,14 @@ class TodoController:
 
     # -- read ---------------------------------------------------------------- #
 
-    def list_todos(self) -> list[Todo]:
-        """Return all todos ordered by id (insertion / creation order)."""
-        return self._db.list_todos()
+    def list_todos(self, sort: TodoSort = TodoSort.CREATED) -> list[Todo]:
+        """Return all todos in the requested order.
+
+        Passes ``sort`` to the persistence layer so the ``ORDER BY`` stays in
+        ``db.py`` (persistence boundary). Default preserves every existing call
+        site.
+        """
+        return self._db.list_todos(sort=sort)
 
     def get_todo(self, todo_id: int) -> Todo:
         """Return the todo with ``todo_id`` or raise :class:`TodoNotFoundError`.
@@ -195,11 +216,14 @@ class TodoController:
         assert command.result is not None
         return command.result
 
-    # -- mutation seam (Feature #6) ----------------------------------------- #
+    # -- priority cycle (Feature #6) ---------------------------------------- #
 
     def cycle_priority(self, todo_id: int) -> Todo:
-        """Cycle priority none→low→medium→high→none. *Implemented in Feature #6.*"""
-        raise NotImplementedError("cycle_priority is a Feature #6 seam")
+        """Cycle priority none→low→medium→high→none and return the updated todo."""
+        command = _CyclePriorityCommand(self._db, todo_id)
+        self._apply(command)
+        assert command.result is not None
+        return command.result
 
     # -- undo/redo choke-point (Feature #9) ---------------------------------- #
 

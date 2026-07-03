@@ -8,6 +8,46 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from enum import Enum, IntEnum
+
+
+class Priority(IntEnum):
+    """Task priority levels.
+
+    Stored as an integer in SQLite (IntEnum is an int subclass — no adapter
+    needed in Python 3.12). Ascending encoding means ``ORDER BY priority DESC``
+    yields HIGH → MEDIUM → LOW with ``NULLS LAST`` pushing none-priority items
+    to the bottom. "No priority" is ``None`` (SQL NULL), not a zero member.
+    """
+
+    LOW = 1
+    MEDIUM = 2
+    HIGH = 3
+
+
+class TodoSort(Enum):
+    """Available sort modes for the todo list (Feature #6 view state).
+
+    ``CREATED`` preserves insertion order (``ORDER BY id``); ``PRIORITY`` ranks
+    by urgency with done items demoted (``ORDER BY completed ASC, priority DESC
+    NULLS LAST, id ASC``). Lives in models (not db) for symmetry with Priority
+    and so the controller can re-export it without a db-layer import.
+    """
+
+    CREATED = "created"
+    PRIORITY = "priority"
+
+
+_CYCLE: tuple[Priority | None, ...] = (None, Priority.LOW, Priority.MEDIUM, Priority.HIGH)
+
+
+def next_priority(current: Priority | None) -> Priority | None:
+    """Return the next priority in the cycle: none→low→medium→high→none.
+
+    Pure function — no DB, no Textual. Single source of truth for the cycle
+    order so the controller command and tests can't drift.
+    """
+    return _CYCLE[(_CYCLE.index(current) + 1) % len(_CYCLE)]
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,7 +65,7 @@ class Todo:
     id: int | None = None
     completed: bool = False
     created_at: datetime = field(default_factory=datetime.now)
-    priority: int | None = None
+    priority: Priority | None = None
     due_date: date | None = None
     category_id: int | None = None
     list_id: int | None = None
