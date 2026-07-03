@@ -76,15 +76,7 @@ screen-reader row labels, narrowed `TodoItem` exception). 151 tests, 99% coverag
 
 ## In Progress
 
-_Nothing in progress._
-
-## Backlog
-
-Ordered by dependency. Pick the topmost item whose dependencies are all Done.
-
----
-
-### Feature #6 — Priority Levels
+### 🚧 Feature #6 — Priority Levels — _design complete 2026-07-03_
 
 **Goal:** Let tasks carry a priority and surface it visually.
 
@@ -96,12 +88,22 @@ Ordered by dependency. Pick the topmost item whose dependencies are all Done.
 
 **Depends on:** Feature #5
 
-**Note (context for the architect, not a decided constraint):** `_PRIORITY_WORDS` in
-`todo_item.py` currently uses `{1: low, 2: medium, 3: high}` as an *inert placeholder* for the
-accessible-label seam — consistent with the documented `none→low→medium→high` cycle direction, but
-never exercised (priority is always `None` until this feature). Feature #6's architect pass should
-**confirm or override** this encoding when defining the priority data model, then update the mapping
-to match.
+**Architecture:** `docs/architecture/feature-6.md` (architect pass complete). Key decisions:
+`Priority(IntEnum)` `{1: low, 2: medium, 3: high}` — the placeholder encoding is **confirmed**
+(ascending int = ascending urgency; "none" = SQL `NULL`, not a zero member); additive migration
+`user_version` 1 → 2 (`ALTER TABLE todos ADD COLUMN priority INTEGER`); cycle routes through a new
+`_CyclePriorityCommand` on the existing `_apply` seam; a dedicated `db.set_priority` (twin of
+`set_completed`, `update()` left untouched); priority sort as `MainScreen` view state with the
+`ORDER BY` in `db.py`, default stays creation order.
+
+**Design decisions resolved with the user (2026-07-03):** sort toggle is `s` (CREATED ↔ PRIORITY)
+with **creation order as the default view**; priority sort **demotes done items below active**
+(`completed ASC, priority DESC NULLS LAST, id ASC`); `s Sort` is **shown in the footer**. No open
+questions remain — ready for the implementer.
+
+## Backlog
+
+Ordered by dependency. Pick the topmost item whose dependencies are all Done.
 
 ---
 
