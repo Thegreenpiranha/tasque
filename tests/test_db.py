@@ -1,4 +1,4 @@
-"""Unit + integration tests for the persistence layer (Feature #3).
+"""Unit + integration tests for the persistence layer (Features #3, #6).
 
 All tests run against an in-memory or tmp-path database — never the dev DB.
 """
@@ -9,7 +9,7 @@ from datetime import datetime
 import pytest
 
 from tasque.db import Database, PersistenceError, TodoNotFoundError
-from tasque.models import Todo
+from tasque.models import Priority, Todo, TodoSort
 
 
 @pytest.fixture
@@ -144,3 +144,163 @@ def len_migrations() -> int:
     from tasque.db import _MIGRATIONS
 
     return len(_MIGRATIONS)
+
+
+# --------------------------------------------------------------------------- #
+# Migration 0002 — adds priority column (Feature #6)
+# --------------------------------------------------------------------------- #
+
+
+def test_fresh_db_schema_version_is_2(db):
+    """A newly opened DB applies all migrations and reaches version 2."""
+    assert db.schema_version == 2
+
+
+def test_v1_db_migrates_to_v2_preserving_data(tmp_path, monkeypatch):
+    """A path-based v1 database is migrated to v2; existing rows keep priority=NULL."""
+    import tasque.db as db_module
+
+    all_migrations = list(db_module._MIGRATIONS)
+    path = tmp_path / "v1.db"
+
+    # Create a v1-only database
+    monkeypatch.setattr(db_module, "_MIGRATIONS", all_migrations[:1])
+    with Database(path) as v1:
+        v1.add(Todo.new("old task"))
+    # user_version is 1 after closing
+
+    # Restore full migration list; reopening should run only 0002
+    monkeypatch.setattr(db_module, "_MIGRATIONS", all_migrations)
+    with Database(path) as v2:
+        assert v2.schema_version == 2
+        todos = v2.list_todos()
+        assert len(todos) == 1
+        assert todos[0].text == "old task"
+        assert todos[0].priority is None  # NULL → None from additive migration
+
+
+# --------------------------------------------------------------------------- #
+# set_priority (Feature #6)
+# --------------------------------------------------------------------------- #
+
+
+def test_set_priority_persists_high(db):
+    saved = db.add(Todo.new("task"))
+    updated = db.set_priority(saved.id, Priority.HIGH)
+    assert updated.priority is Priority.HIGH
+    assert db.get(saved.id).priority is Priority.HIGH
+
+
+def test_set_priority_persists_medium(db):
+    saved = db.add(Todo.new("task"))
+    updated = db.set_priority(saved.id, Priority.MEDIUM)
+    assert updated.priority is Priority.MEDIUM
+
+
+def test_set_priority_persists_low(db):
+    saved = db.add(Todo.new("task"))
+    updated = db.set_priority(saved.id, Priority.LOW)
+    assert updated.priority is Priority.LOW
+
+
+def test_set_priority_clears_to_none(db):
+    """Setting priority back to None clears it (stores SQL NULL)."""
+    saved = db.add(Todo.new("task"))
+    db.set_priority(saved.id, Priority.HIGH)
+    updated = db.set_priority(saved.id, None)
+    assert updated.priority is None
+    assert db.get(saved.id).priority is None
+
+
+def test_set_priority_raises_for_missing_id(db):
+    with pytest.raises(TodoNotFoundError):
+        db.set_priority(999, Priority.HIGH)
+
+
+def test_set_priority_returns_todo(db):
+    saved = db.add(Todo.new("task"))
+    result = db.set_priority(saved.id, Priority.MEDIUM)
+    assert isinstance(result, Todo)
+    assert result.id == saved.id
+
+
+# --------------------------------------------------------------------------- #
+# list_todos with sort parameter (Feature #6)
+# --------------------------------------------------------------------------- #
+
+
+def test_list_todos_default_sort_is_creation_order(db):
+    """Default sort (CREATED / no arg) preserves insertion order."""
+    a = db.add(Todo.new("a"))
+    b = db.add(Todo.new("b"))
+    c = db.add(Todo.new("c"))
+    assert [t.id for t in db.list_todos()] == [a.id, b.id, c.id]
+
+
+def test_list_todos_created_sort_explicit(db):
+    """TodoSort.CREATED is the same as default insertion order."""
+    a = db.add(Todo.new("a"))
+    b = db.add(Todo.new("b"))
+    assert [t.id for t in db.list_todos(sort=TodoSort.CREATED)] == [a.id, b.id]
+
+
+def test_list_todos_priority_sort_high_before_medium_before_low(db):
+    low = db.add(Todo.new("low"))
+    db.set_priority(low.id, Priority.LOW)
+    medium = db.add(Todo.new("medium"))
+    db.set_priority(medium.id, Priority.MEDIUM)
+    high = db.add(Todo.new("high"))
+    db.set_priority(high.id, Priority.HIGH)
+
+    ids = [t.id for t in db.list_todos(sort=TodoSort.PRIORITY)]
+    assert ids == [high.id, medium.id, low.id]
+
+
+def test_list_todos_priority_sort_null_last(db):
+    """None-priority items sink below any explicitly-prioritised active item."""
+    no_prio = db.add(Todo.new("none"))
+    low = db.add(Todo.new("low"))
+    db.set_priority(low.id, Priority.LOW)
+
+    ids = [t.id for t in db.list_todos(sort=TodoSort.PRIORITY)]
+    assert ids.index(low.id) < ids.index(no_prio.id)
+
+
+def test_list_todos_priority_sort_id_tiebreak(db):
+    """Same-priority tasks appear in creation order (id ASC tie-break)."""
+    first = db.add(Todo.new("first high"))
+    db.set_priority(first.id, Priority.HIGH)
+    second = db.add(Todo.new("second high"))
+    db.set_priority(second.id, Priority.HIGH)
+
+    ids = [t.id for t in db.list_todos(sort=TodoSort.PRIORITY)]
+    assert ids.index(first.id) < ids.index(second.id)
+
+
+def test_list_todos_priority_sort_done_demoted_below_active(db):
+    """Completed tasks appear after all active tasks regardless of priority."""
+    done_high = db.add(Todo.new("done high"))
+    db.set_priority(done_high.id, Priority.HIGH)
+    db.set_completed(done_high.id, True)
+
+    active_none = db.add(Todo.new("active none"))  # no priority
+
+    result = db.list_todos(sort=TodoSort.PRIORITY)
+    ids = [t.id for t in result]
+    assert ids.index(active_none.id) < ids.index(done_high.id)
+
+
+# --------------------------------------------------------------------------- #
+# update() does not touch priority (Feature #6 guard)
+# --------------------------------------------------------------------------- #
+
+
+def test_update_leaves_priority_untouched(db):
+    """db.update() (text edit) must not clobber or clear the priority."""
+    saved = db.add(Todo.new("task"))
+    db.set_priority(saved.id, Priority.HIGH)
+
+    refreshed = db.get(saved.id)
+    edited = db.update(replace(refreshed, text="renamed"))
+    assert edited.priority is Priority.HIGH
+    assert db.get(saved.id).priority is Priority.HIGH

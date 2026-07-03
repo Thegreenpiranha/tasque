@@ -164,7 +164,14 @@ TodoItem.-priority-medium > #priority {
 }
 
 TodoItem.-priority-low > #priority {
-    color: $primary;
+    color: $text-muted;
+}
+
+/* Done state dims the priority tag. MUST appear AFTER the .-priority-* block —
+   equal specificity (type + one class + id) means source order breaks the tie,
+   so this rule wins only when placed later (priority.md §CSS). */
+TodoItem.-done > #priority {
+    color: $text-disabled;
 }
 
 TodoItem.-overdue > #meta {

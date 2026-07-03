@@ -49,6 +49,8 @@ class TodoList(ListView):
         Binding("enter", "toggle", "Toggle", show=False),
         Binding("e", "edit", "Edit", show=True),
         Binding("d", "delete", "Delete", show=True),
+        # Feature #6: priority cycle and sort toggle.
+        Binding("p", "cycle_priority", "Priority", show=True),
     ]
 
     # -- Intent message seams (Features #5 / #6) ----------------------------- #
@@ -115,7 +117,20 @@ class TodoList(ListView):
             return child.todo_id
         return None
 
-    # -- intent actions (Feature #5) ---------------------------------------- #
+    def highlight_id(self, todo_id: int) -> None:
+        """Set the cursor to the TodoItem with ``todo_id``; fall back to index 0.
+
+        Called after a rebuild (``set_todos``) to re-anchor the cursor to a
+        specific task rather than the raw slot it occupied before the rebuild.
+        """
+        for i, child in enumerate(self._nodes):
+            if isinstance(child, TodoItem) and child.todo_id == todo_id:
+                self.index = i
+                return
+        if self._nodes:
+            self.index = 0
+
+    # -- intent actions (Features #5 / #6) ------------------------------------- #
 
     def action_toggle(self) -> None:
         """Request a completion toggle on the highlighted row (no-op if empty)."""
@@ -134,6 +149,12 @@ class TodoList(ListView):
         todo_id = self.current_todo_id
         if todo_id is not None:
             self.post_message(self.DeleteRequested(todo_id))
+
+    def action_cycle_priority(self) -> None:
+        """Request a priority cycle on the highlighted row (no-op if empty)."""
+        todo_id = self.current_todo_id
+        if todo_id is not None:
+            self.post_message(self.PriorityCycleRequested(todo_id))
 
     # -- navigation actions ------------------------------------------------- #
 

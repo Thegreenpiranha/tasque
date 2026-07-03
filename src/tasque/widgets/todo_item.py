@@ -10,12 +10,32 @@ from textual.css.query import NoMatches
 from textual.reactive import reactive
 from textual.widgets import ListItem, Static
 
-from tasque.models import Todo
+from tasque.models import Priority, Todo
 
-# Priority-code → spoken word, for the accessible label (values land with #6).
-_PRIORITY_WORDS = {3: "high priority", 2: "medium priority", 1: "low priority"}
+# Maps used for rendering the #priority slot and setting the accessible label.
+_PRIORITY_TAGS: dict[Priority, str] = {
+    Priority.HIGH: "(H) ",
+    Priority.MEDIUM: "(M) ",
+    Priority.LOW: "(L) ",
+}
+_PRIORITY_CLASS: dict[Priority, str] = {
+    Priority.HIGH: "-priority-high",
+    Priority.MEDIUM: "-priority-medium",
+    Priority.LOW: "-priority-low",
+}
+# Priority-code → spoken word, for the accessible label.
+_PRIORITY_WORDS: dict[Priority, str] = {
+    Priority.HIGH: "high priority",
+    Priority.MEDIUM: "medium priority",
+    Priority.LOW: "low priority",
+}
 
 logger = logging.getLogger("tasque.widgets.todo_item")
+
+
+def _priority_tag(priority: Priority | None) -> str:
+    """Return the exact 4-character slot content for a priority level."""
+    return _PRIORITY_TAGS.get(priority, "    ")  # type: ignore[arg-type]
 
 
 class TodoItem(ListItem):
@@ -50,11 +70,11 @@ class TodoItem(ListItem):
     def compose(self) -> ComposeResult:
         t = self._initial_todo
         checkbox_text = "[x]" if t.completed else "[ ]"
-        # markup=False prevents Rich from interpreting "[ ]" / "[x]" / "▸" as
-        # Console Markup tags, which would strip them silently.
+        # markup=False prevents Rich from interpreting "[ ]" / "[x]" / "▸" / "(H)"
+        # as Console Markup tags, which would strip them silently (LEARNINGS 2026-07-01).
         yield Static("  ", id="gutter", markup=False)
         yield Static(checkbox_text, id="checkbox", markup=False)
-        yield Static("    ", id="priority", markup=False)
+        yield Static(_priority_tag(t.priority), id="priority", markup=False)
         yield Static(t.text, id="title", markup=False)
         with Horizontal(id="meta"):
             yield Static("", id="due", markup=False)
@@ -73,6 +93,7 @@ class TodoItem(ListItem):
         if new_todo is None:
             return
         self.query_one("#checkbox", Static).update("[x]" if new_todo.completed else "[ ]")
+        self.query_one("#priority", Static).update(_priority_tag(new_todo.priority))
         self.query_one("#title", Static).update(new_todo.text)
         self._sync_classes(new_todo)
 
@@ -89,8 +110,12 @@ class TodoItem(ListItem):
 
     def _sync_classes(self, todo: Todo) -> None:
         self.set_class(todo.completed, "-done")
-        # Seam classes for Feature #6 / #7 (defined, never set in #4):
+        # Remove all priority classes then re-apply the one that matches.
         self.remove_class("-priority-high", "-priority-medium", "-priority-low")
+        cls = _PRIORITY_CLASS.get(todo.priority)  # type: ignore[arg-type]
+        if cls:
+            self.add_class(cls)
+        # Feature #7 seam — never set here.
         self.remove_class("-overdue", "-due-today")
 
     # -- accessibility ------------------------------------------------------ #

@@ -1,4 +1,4 @@
-"""Unit tests for TodoController (Feature #4).
+"""Unit tests for TodoController (Features #4, #6).
 
 All tests use an in-memory SQLite database — never the user's database.
 """
@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import pytest
 
-from tasque.controller import TodoController
+from tasque.controller import TodoController, TodoSort
 from tasque.db import Database, TodoNotFoundError
-from tasque.models import Todo
+from tasque.models import Priority, Todo
 
 
 @pytest.fixture
@@ -192,11 +192,86 @@ def test_delete_todo_raises_for_missing_id(controller):
 
 
 # --------------------------------------------------------------------------- #
-# cycle_priority — still a seam until Feature #6
+# cycle_priority (Feature #6)
 # --------------------------------------------------------------------------- #
 
 
-def test_cycle_priority_raises_not_implemented(controller, db):
-    saved = db.add(Todo.new("task"))
-    with pytest.raises(NotImplementedError):
-        controller.cycle_priority(saved.id)
+def test_cycle_priority_none_to_low(controller):
+    added = controller.add_todo("task")
+    result = controller.cycle_priority(added.id)
+    assert result.priority is Priority.LOW
+
+
+def test_cycle_priority_low_to_medium(controller):
+    added = controller.add_todo("task")
+    controller.cycle_priority(added.id)  # none → low
+    result = controller.cycle_priority(added.id)  # low → medium
+    assert result.priority is Priority.MEDIUM
+
+
+def test_cycle_priority_medium_to_high(controller):
+    added = controller.add_todo("task")
+    controller.cycle_priority(added.id)
+    controller.cycle_priority(added.id)
+    result = controller.cycle_priority(added.id)
+    assert result.priority is Priority.HIGH
+
+
+def test_cycle_priority_high_to_none(controller):
+    added = controller.add_todo("task")
+    for _ in range(3):
+        controller.cycle_priority(added.id)  # none→low→medium→high
+    result = controller.cycle_priority(added.id)  # high→none
+    assert result.priority is None
+
+
+def test_cycle_priority_full_cycle_returns_to_none(controller):
+    """Four consecutive cycles return to none."""
+    added = controller.add_todo("task")
+    for _ in range(4):
+        controller.cycle_priority(added.id)
+    final = controller.get_todo(added.id)
+    assert final.priority is None
+
+
+def test_cycle_priority_returns_updated_todo(controller):
+    added = controller.add_todo("task")
+    result = controller.cycle_priority(added.id)
+    assert isinstance(result, Todo)
+    assert result.id == added.id
+    assert result.priority is Priority.LOW
+
+
+def test_cycle_priority_raises_for_missing_id(controller):
+    with pytest.raises(TodoNotFoundError):
+        controller.cycle_priority(999)
+
+
+def test_cycle_priority_persists_through_list_todos(controller):
+    added = controller.add_todo("task")
+    controller.cycle_priority(added.id)  # → LOW
+    controller.cycle_priority(added.id)  # → MEDIUM
+    todos = controller.list_todos()
+    assert todos[0].priority is Priority.MEDIUM
+
+
+# --------------------------------------------------------------------------- #
+# list_todos with sort (Feature #6)
+# --------------------------------------------------------------------------- #
+
+
+def test_list_todos_with_priority_sort_passes_through_to_db(controller, db):
+    """PRIORITY sort returns tasks ordered by priority DESC."""
+    controller.add_todo("a")
+    b = controller.add_todo("b")
+    db.set_priority(b.id, Priority.HIGH)
+
+    result = controller.list_todos(sort=TodoSort.PRIORITY)
+    assert result[0].id == b.id  # HIGH comes first
+
+
+def test_list_todos_default_sort_unchanged(controller, db):
+    """Default sort (no arg) keeps creation order."""
+    a = controller.add_todo("a")
+    b = controller.add_todo("b")
+    assert [t.id for t in controller.list_todos()] == [a.id, b.id]

@@ -1,4 +1,4 @@
-"""Behavioural tests for TodoList widget navigation (Feature #4).
+"""Behavioural tests for TodoList widget navigation (Features #4, #6).
 
 All assertions are on observable DOM state — which item has ``-highlight``,
 what ``current_todo_id`` returns, etc. — not on private ListView internals.
@@ -320,3 +320,40 @@ def test_delete_requested_message_carries_todo_id():
 def test_priority_cycle_requested_message_carries_todo_id():
     msg = TodoList.PriorityCycleRequested(todo_id=4)
     assert msg.todo_id == 4
+
+
+# --------------------------------------------------------------------------- #
+# highlight_id (Feature #6)
+# --------------------------------------------------------------------------- #
+
+
+async def test_highlight_id_moves_cursor_to_matching_item():
+    todos = _make_todos(3)
+    app = _ListApp(todos)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        todo_list = app.query_one(TodoList)
+
+        todo_list.highlight_id(todos[2].id)
+        await pilot.pause()
+
+        assert todo_list.current_todo_id == todos[2].id
+
+
+async def test_highlight_id_falls_back_to_zero_for_unknown_id():
+    """If the requested id is not in the list, cursor lands at index 0."""
+    todos = _make_todos(3)
+    app = _ListApp(todos)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        todo_list = app.query_one(TodoList)
+        # Move to last item first so we can verify we land back at 0.
+        todo_list.index = 2
+        await pilot.pause()
+
+        todo_list.highlight_id(9999)  # no such id
+        await pilot.pause()
+
+        assert todo_list.index == 0

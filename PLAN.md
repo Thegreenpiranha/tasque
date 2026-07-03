@@ -101,6 +101,17 @@ with **creation order as the default view**; priority sort **demotes done items 
 (`completed ASC, priority DESC NULLS LAST, id ASC`); `s Sort` is **shown in the footer**. No open
 questions remain — ready for the implementer.
 
+**Implementation complete (2026-07-03):** `Priority(IntEnum)` + `TodoSort(Enum)` + `next_priority`
+in `models.py`; migration `0002` adds nullable `priority INTEGER` column, `user_version` 1→2,
+`set_priority` twin of `set_completed`, `list_todos(sort=…)` ORDER BY in `db.py`; `cycle_priority`
+via `_CyclePriorityCommand` through `_apply` seam in `controller.py`; `#priority` slot rendered
+from `_priority_tag`, CSS class set in `_sync_classes`, `watch_todo` updated in `todo_item.py`;
+`p` binding + `action_cycle_priority` + `highlight_id` in `todo_list.py`; `_sort` view state, `s`
+binding, `action_cycle_sort`, `on_todo_list_priority_cycle_requested`, sort-aware
+`on_todo_list_toggle_requested`, `keep_id` param on `refresh_todos`, border-title suffix in
+`main.py`; low-priority colour `$primary→$text-muted`, done-priority dim rule in `tasque.tcss`.
+216 tests, 99% coverage, ruff clean. Awaits tester + reviewer passes.
+
 ## Backlog
 
 Ordered by dependency. Pick the topmost item whose dependencies are all Done.

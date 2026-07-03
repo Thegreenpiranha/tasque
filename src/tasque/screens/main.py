@@ -10,7 +10,7 @@ from textual.containers import Container
 from textual.screen import Screen
 from textual.widgets import Footer, Header, ListView
 
-from tasque.controller import TasqueError, TodoController
+from tasque.controller import TasqueError, TodoController, TodoSort
 from tasque.screens.delete_confirm import DeleteConfirmScreen
 from tasque.widgets.empty_state import EmptyState
 from tasque.widgets.input_bar import InputBar
@@ -44,12 +44,14 @@ class MainScreen(Screen[None]):
 
     BINDINGS = [
         Binding("a", "add_todo", "Add", show=True),
+        Binding("s", "cycle_sort", "Sort", show=True),
         Binding("question_mark", "help", "Help", show=True),
     ]
 
     def __init__(self, controller: TodoController) -> None:
         super().__init__()
         self._controller = controller
+        self._sort: TodoSort = TodoSort.CREATED
 
     # -- compose ------------------------------------------------------------ #
 
@@ -68,15 +70,23 @@ class MainScreen(Screen[None]):
 
     # -- data refresh ------------------------------------------------------- #
 
-    async def refresh_todos(self) -> None:
-        """Reload todos from the controller and update the UI."""
-        todos = self._controller.list_todos()
+    async def refresh_todos(self, *, keep_id: int | None = None) -> None:
+        """Reload todos from the controller and update the UI.
+
+        ``keep_id`` re-anchors the cursor to a specific task after a rebuild
+        (used by the priority cycle and sort toggle to follow the task rather
+        than the vacated slot). Without ``keep_id`` the list resets to index 0.
+        """
+        todos = self._controller.list_todos(sort=self._sort)
 
         todo_list = self.query_one(TodoList)
         empty_state = self.query_one(EmptyState)
 
         await todo_list.set_todos(todos)
         self._update_counts(todos)
+
+        if keep_id is not None:
+            todo_list.highlight_id(keep_id)
 
         has_todos = bool(todos)
         todo_list.set_class(not has_todos, "-hidden")
@@ -88,12 +98,17 @@ class MainScreen(Screen[None]):
             empty_state.cta = _ADD_CTA
 
     def _update_counts(self, todos: list) -> None:
-        """Refresh only the panel border-title counts (no list rebuild)."""
+        """Refresh only the panel border-title counts (no list rebuild).
+
+        Appends ``· by priority`` when the active sort is PRIORITY so the mode
+        survives the toast disappearing (priority.md §`s` / OQ2).
+        """
         active = sum(1 for t in todos if not t.completed)
         done = sum(1 for t in todos if t.completed)
-        self.query_one(
-            "#list-panel", Container
-        ).border_title = f"Inbox · {active} active · {done} done"
+        title = f"Inbox · {active} active · {done} done"
+        if self._sort is TodoSort.PRIORITY:
+            title += " · by priority"
+        self.query_one("#list-panel", Container).border_title = title
 
     # -- event handlers: highlight ------------------------------------------ #
 
@@ -103,15 +118,44 @@ class MainScreen(Screen[None]):
 
     # -- event handlers: toggle --------------------------------------------- #
 
-    def on_todo_list_toggle_requested(self, event: TodoList.ToggleRequested) -> None:
+    async def on_todo_list_toggle_requested(self, event: TodoList.ToggleRequested) -> None:
         event.stop()
+        todo_list = self.query_one(TodoList)
+        index = todo_list.index  # capture BEFORE the re-sort
         try:
             updated = self._controller.toggle_todo(event.todo_id)
         except TasqueError as exc:
             self.app.notify(f"Error: {exc}", severity="error")
             return
-        self.query_one(TodoList).update_todo(updated)
-        self._update_counts(self._controller.list_todos())
+        if self._sort is TodoSort.PRIORITY:
+            # Completing / uncompleting a task moves it between active and done
+            # bands in priority sort — re-sort and land cursor by INDEX (the
+            # next active task slides into the vacated slot), not by task id.
+            await self.refresh_todos()
+            tl = self.query_one(TodoList)
+            if len(tl) > 0:
+                tl.index = min(index, len(tl) - 1)
+        else:
+            todo_list.update_todo(updated)
+            self._update_counts(self._controller.list_todos())
+
+    # -- event handlers: priority ------------------------------------------- #
+
+    async def on_todo_list_priority_cycle_requested(
+        self, event: TodoList.PriorityCycleRequested
+    ) -> None:
+        event.stop()
+        try:
+            updated = self._controller.cycle_priority(event.todo_id)
+        except TasqueError as exc:
+            self.app.notify(f"Error: {exc}", severity="error")
+            return
+        if self._sort is TodoSort.PRIORITY:
+            # Row may jump to a new band — rebuild list, cursor follows the task.
+            await self.refresh_todos(keep_id=updated.id)
+        else:
+            # Creation order: position unchanged — cheap in-place re-render.
+            self.query_one(TodoList).update_todo(updated)
 
     # -- event handlers: add / edit (the InputBar) -------------------------- #
 
@@ -212,6 +256,13 @@ class MainScreen(Screen[None]):
         if not input_bar.has_class("-hidden"):
             return  # bar already open; ignore a second `a`
         input_bar.open_add()
+
+    async def action_cycle_sort(self) -> None:
+        """Toggle between creation order and priority sort."""
+        self._sort = TodoSort.PRIORITY if self._sort is TodoSort.CREATED else TodoSort.CREATED
+        keep = self.query_one(TodoList).current_todo_id
+        await self.refresh_todos(keep_id=keep)
+        self.app.notify(f"Sorted by {self._sort.name.lower()}", severity="information")
 
     def action_help(self) -> None:
         """Show the help overlay. Implemented in a future feature."""

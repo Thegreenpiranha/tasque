@@ -24,7 +24,7 @@ from dataclasses import replace
 from datetime import date, datetime
 from os import PathLike
 
-from tasque.models import Todo
+from tasque.models import Priority, Todo, TodoSort
 
 logger = logging.getLogger("tasque.db")
 
@@ -68,8 +68,13 @@ def _migration_0001_create_todos(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_0002_add_priority(conn: sqlite3.Connection) -> None:
+    conn.execute("ALTER TABLE todos ADD COLUMN priority INTEGER")  # nullable, no default → NULL
+
+
 _MIGRATIONS = [
     _migration_0001_create_todos,
+    _migration_0002_add_priority,
 ]
 
 
@@ -83,12 +88,13 @@ def _row_to_todo(row: sqlite3.Row) -> Todo:
         return row[name] if name in keys else None
 
     due_raw = col("due_date")
+    raw_priority = col("priority")
     return Todo(
         id=row["id"],
         text=row["text"],
         completed=bool(row["completed"]),
         created_at=datetime.fromisoformat(row["created_at"]),
-        priority=col("priority"),
+        priority=Priority(raw_priority) if raw_priority is not None else None,
         due_date=date.fromisoformat(due_raw) if due_raw else None,
         category_id=col("category_id"),
         list_id=col("list_id"),
@@ -159,9 +165,18 @@ class Database:
             raise TodoNotFoundError(todo_id)
         return _row_to_todo(row)
 
-    def list_todos(self) -> list[Todo]:
-        """Return all todos, ordered by id (insertion order)."""
-        rows = self._conn.execute("SELECT * FROM todos ORDER BY id").fetchall()
+    def list_todos(self, sort: TodoSort = TodoSort.CREATED) -> list[Todo]:
+        """Return all todos in the requested order.
+
+        ``TodoSort.CREATED`` (default) preserves insertion order (``ORDER BY
+        id``). ``TodoSort.PRIORITY`` ranks by urgency: active before done,
+        high → medium → low → none, stable creation-order tie-break.
+        """
+        if sort is TodoSort.PRIORITY:
+            order = "ORDER BY completed ASC, priority DESC NULLS LAST, id ASC"
+        else:
+            order = "ORDER BY id"
+        rows = self._conn.execute(f"SELECT * FROM todos {order}").fetchall()
         return [_row_to_todo(row) for row in rows]
 
     def update(self, todo: Todo) -> Todo:
@@ -189,6 +204,22 @@ class Database:
         cur = self._conn.execute(
             "UPDATE todos SET completed = ? WHERE id = ?",
             (int(completed), todo_id),
+        )
+        if cur.rowcount == 0:
+            raise TodoNotFoundError(todo_id)
+        self._conn.commit()
+        return self.get(todo_id)
+
+    def set_priority(self, todo_id: int, priority: Priority | None) -> Todo:
+        """Set a todo's priority and return the updated todo.
+
+        Twin of :meth:`set_completed`. Stores the integer value of the enum (or
+        SQL NULL for none) — ``update()`` is deliberately NOT widened to write
+        priority so text edits never clobber it.
+        """
+        cur = self._conn.execute(
+            "UPDATE todos SET priority = ? WHERE id = ?",
+            (int(priority) if priority is not None else None, todo_id),
         )
         if cur.rowcount == 0:
             raise TodoNotFoundError(todo_id)

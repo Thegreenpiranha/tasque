@@ -218,23 +218,42 @@ documented `none→low→medium→high` cycle. Correct move: leave the seam, and
 reconciliation already happened. Before "reconciling" against a prior decision, verify the decision
 actually exists in the code/docs — don't invent it to satisfy the instruction.
 
-<!--
-Example entries (delete these once you have real ones):
+### 2026-07-03 — [decision] Priority stored as IntEnum (ascending: LOW=1, MEDIUM=2, HIGH=3)
 
-### 2026-01-15 — [gotcha] Textual reactive props don't fire on first mount
+Confirmed the placeholder `{1: low, 2: medium, 3: high}` encoding as the real model. `IntEnum`
+wins over plain `Enum` for three reasons: (1) `ORDER BY priority DESC` naturally yields
+`HIGH → MEDIUM → LOW` with `NULLS LAST` putting none-priority at the bottom — a string encoding
+would sort lexically wrong; (2) `IntEnum` is an `int` subclass, so SQLite stores it as a bare
+integer with no custom adapter (avoiding the Python-3.12 adapter-deprecation trap from 2026-06-29);
+(3) `Priority(row_value)` round-trips cleanly at the `_row_to_todo` boundary. "None" stays `SQL
+NULL` / Python `None`, not a `NONE = 0` member — keeping "unset" distinct from "a level" and
+matching the nullable column design. The ascending int encoding was already correct in the
+placeholder; Feature #6 just promoted it to a typed `IntEnum`.
 
-Setting a reactive property in `__init__` doesn't trigger the watcher. Has to be set
-in `on_mount` if you want the watch_* method to run. Cost an afternoon.
+### 2026-07-03 — [decision] CSS rule ordering is load-bearing when specificities are equal
 
-### 2026-01-18 — [decision] Priority stored as IntEnum, not string
+The `TodoItem.-done > #priority { color: $text-disabled; }` rule and the `.-priority-*` rules all
+have the same specificity (type selector + one class + id = 0-2-1). When two rules tie on
+specificity, the **later** one wins. The done-priority rule must appear **after** the
+`.-priority-*` block in `tasque.tcss`, otherwise a completed high-priority task shows bright `$error`
+instead of dimming to `$text-disabled`. Verified: misplacing this rule above the priority-colour
+rules restores the wrong colour. The comment in `tasque.tcss` explains the placement.
 
-Considered string ("high"/"medium"/"low") for readability vs IntEnum for sorting.
-Settled on IntEnum — sorting is the common case and converting to display label
-is one line. Magic strings would have leaked through the codebase.
+### 2026-07-03 — [decision] Sort mode is view state on MainScreen, not persisted
 
-### 2026-01-22 — [ux] Modal close returns focus to last list item, not first
+The active sort (CREATED / PRIORITY) lives on `self._sort` in `MainScreen` — an ephemeral UI
+preference, reset to `CREATED` on each app launch. The `ORDER BY` logic lives in `db.py` (only SQL
+may live there), threaded through the controller's `list_todos(sort=...)` parameter. `TodoSort` is
+defined in `models.py` (pure; no DB or Textual import) and re-exported from `controller.py` so
+screens can import it without touching `db.py`. If session-persistence of the chosen sort is ever
+wanted, that's a settings concern (a future feature), not task schema.
 
-The default Textual modal behaviour returns focus to the first focusable widget.
-Users found this disorienting after editing item 47 in a long list. Override
-`on_unmount` on the modal to push focus back to `self.previous_focused`.
--->
+### 2026-07-03 — [gotcha] Test task-insertion order determines the initial cursor position in sort tests
+
+In pilot tests for the sort feature, the initial cursor sits at index 0 (first item after
+`set_todos`). In creation sort, index 0 is the first task added. When switching to priority sort,
+`action_cycle_sort` captures `current_todo_id` *before* rebuilding the list — that captured id is
+the first-added task's id. To write a test where "cursor is on the high-priority task before sorting
+and follows it after", the high-priority task must be added first (so it owns index 0 in creation
+sort). Reversing insertion order silently produces a different `keep_id` and different cursor
+behaviour after sort.
