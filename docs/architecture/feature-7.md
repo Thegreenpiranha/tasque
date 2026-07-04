@@ -381,12 +381,18 @@ Extends the existing mode machinery (no new pattern — the same two-bindings-pe
 footer swap from LEARNINGS 2026-07-02):
 
 - `mode` reactive gains `"due"`. `watch_mode`: `"due"` → `border_title = "Due date"`.
-- New binding `Binding("enter", "submit_due", "Set due", show=True, priority=True)` and
-  `action_submit_due` → `self._submit()`. `check_action`: `submit_due` visible iff `mode == "due"`
-  (and the existing `cancel` already returns `True` for non-add modes → Esc reads "Cancel").
+- **Enter label is a two-state Set/Clear swap** (researcher refinement, `due-dates.md` Q3): `⏎ Set
+  due` when the field has text, `⏎ Clear due` when empty — so blank-to-clear is discoverable exactly
+  when the user backspaces a date away. Two same-key `enter` bindings (`submit_due` / `clear_due`,
+  both `priority=True`), with `check_action` gating on `mode == "due"` **and** field-emptiness; both
+  call `self._submit()`. This reuses the existing check_action/refresh_bindings label-swap machinery
+  (Add↔Save / Cancel↔Done, LEARNINGS 2026-07-02) plus **one small addition**: an `on_input_changed`
+  handler that calls `refresh_bindings()` so the label tracks empty↔non-empty as the user types.
+  (`Esc` reads "Cancel" via the existing non-add branch.)
 - `open_due(todo_id, prefill)`: set `editing_id = todo_id` (reused as "the row the bar acts on";
   edit and due are mutually exclusive, so no new field), `mode = "due"`, set the field to `prefill`
-  with caret at end, set a due-specific `placeholder`, un-hide, focus, `refresh_bindings()`.
+  with caret at end, set the due placeholder (`due-dates.md`: `YYYY-MM-DD, today, tomorrow, +3`),
+  un-hide, focus, `refresh_bindings()`.
 - **`_submit` becomes mode-aware for empty:** in `"due"` mode, empty is **valid** and means clear —
   post `Submitted("", "due")` rather than pulsing. Non-empty posts `Submitted(value, "due")` (the
   screen parses). Add/edit keep their current empty-pulses-invalid behaviour.
@@ -507,34 +513,39 @@ cursor plumbing.
 
 ## 8. TodoItem rendering + CSS + accessible label
 
-> **⚠ Display strings pending the researcher pass (`docs/ux/due-dates.md`).** The exact tokens
-> below (`OVERDUE 06-20`, `due today`, `06-30`, `──`) follow `main-screen.md` §States / Open
-> Question #4, which are **assumptions**, not settled UX. The researcher owns the final strings and
-> may adjust them (e.g. relative `in 3d`, a year suffix for far-future dates). The architecture is
-> unaffected: it must (a) render into the reserved `#due` slot inside `#meta`, (b) pair colour with
-> a non-colour signal (the literal word `OVERDUE` / `due today` — Principle 4), and (c) map cleanly
-> from `due_state`. `_due_display` is the seam the implementer wires to whatever the researcher
-> specs; treat the values below as the default fallback.
+> **Display strings RESOLVED by `docs/ux/due-dates.md` (researcher, 2026-07-04).** The forms below
+> are now the spec: `OVERDUE 06-20` / `due today` / `06-30` / `──`; **future stays absolute** (not
+> relative `in 3d`), with a **year rule** — `MM-DD` in the current calendar year, full `YYYY-MM-DD`
+> otherwise (overdue and future alike, e.g. `OVERDUE 2025-12-01` / `2027-01-15`). This resolves
+> `main-screen.md` Open Question #4. The year rule threads `today` into `_due_display`/`_fmt_due`
+> (below) — the widget passes the same `date.today()` it already computes for `due_state`, so no new
+> clock read and it stays fixed-`today`-testable. Colour stays paired with a non-colour word
+> (Principle 4).
 
 **`todo_item.py` changes** (activating the reserved `#due` slot):
 
 ```python
-def _due_display(due: date | None, state: DueState, completed: bool) -> str:
-    """The string for the reserved #due slot. Researcher owns the exact wording."""
+def _fmt_due(due: date, today: date) -> str:
+    # Year rule (due-dates.md Q4): MM-DD in the current year, full ISO otherwise.
+    return due.strftime("%m-%d") if due.year == today.year else due.isoformat()
+
+
+def _due_display(due: date | None, state: DueState, completed: bool, today: date) -> str:
+    """The string for the reserved #due slot (due-dates.md Q4)."""
     if due is None:
-        return ""                                    # blank slot — no due date
+        return ""                                     # blank slot — no due date
     if completed:
-        return "──"                        # ── : done rows show no stale escalation
+        return "──"                                   # done rows show no stale escalation
     if state is DueState.OVERDUE:
-        return f"OVERDUE {due.strftime('%m-%d')}"    # e.g. OVERDUE 06-20
+        return f"OVERDUE {_fmt_due(due, today)}"       # OVERDUE 06-20 / OVERDUE 2025-12-01
     if state is DueState.TODAY:
         return "due today"
-    return due.strftime("%m-%d")                     # future: 06-30
+    return _fmt_due(due, today)                         # future: 06-30 / 2027-01-15
 ```
 
-- **`watch_todo`**: add one line beside the checkbox/priority/title updates —
+- **`watch_todo`**: add beside the checkbox/priority/title updates —
   `today = date.today(); state = due_state(new_todo.due_date, today);
-  self.query_one("#due", Static).update(_due_display(new_todo.due_date, state, new_todo.completed))`.
+  self.query_one("#due", Static).update(_due_display(new_todo.due_date, state, new_todo.completed, today))`.
   (`#due` already exists in `compose` with `markup=False`; it just starts receiving content.)
 - **`_sync_classes`** — replace the unconditional `remove_class("-overdue", "-due-today")` with
   set-exactly-the-right-one, **gated on completion**:
@@ -557,8 +568,9 @@ def _due_display(due: date | None, state: DueState, completed: bool) -> str:
   if due_word is not None:
       parts.append(due_word)
   ```
-  where `_due_word` returns `"overdue"` / `"due today"` / `"due 06-30"` / `None` (none or completed →
-  omitted). Label order becomes **completion, priority, text, due**.
+  where `_due_word` returns `"overdue"` / `"due today"` / `"due 2026-06-30"` (future uses **full ISO**
+  for unambiguous read-aloud, `due-dates.md` Q4) / `None` (none or completed → omitted). Label order
+  becomes **completion, priority, text, due**.
 
 **CSS — no change required.** `tasque.tcss` already ships:
 

@@ -145,7 +145,17 @@ LAST, id ASC`, border-title `· by due`), toggle-handler branch generalised from
 `d` Delete); (2) **`TodoSort.DUE` sort ships in #7; real filtering deferred to #11** as a unified
 priority/due/category filter (constraint recorded on #11's entry). (3) parse-grammar breadth and (4)
 display strings are handed to the **researcher** (`docs/ux/due-dates.md`), not open architect
-questions. No architect questions remain. Next: researcher pass, then implementer.
+questions. No architect questions remain.
+
+**Researcher pass complete (2026-07-04):** `docs/ux/due-dates.md` written. Q3 → confirm the small
+grammar (ISO + `today`/`tomorrow`/`+N`; NL/weekday forms deferred at zero-UX-cost), placeholder
+`YYYY-MM-DD, today, tomorrow, +3`, a two-state **Set/Clear** footer swap for blank-to-clear
+discoverability, invalid-parse hint. Q4 → confirm `OVERDUE MM-DD` / `due today` / `MM-DD` / `──`,
+**future stays absolute**, and a **year rule** (`MM-DD` in the current year, full `YYYY-MM-DD`
+otherwise) — resolves `main-screen.md` Open Question #4. Two refinements reconciled back into
+`feature-7.md`: §7b footer Set/Clear swap (+`on_input_changed` refresh) and §8 `_due_display`/
+`_due_word` threading `today` for the year rule. **Ready for the implementer** (architecture + UX
+spec both landed; no open questions).
 
 ## Backlog
 
