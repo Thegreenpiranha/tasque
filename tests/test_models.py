@@ -192,6 +192,40 @@ def test_parse_due_date_rejects_junk(junk):
         parse_due_date(junk, today=_TODAY)
 
 
+# --- boundary arithmetic: month/year rollover and leap years --------------- #
+# The relative forms lean on timedelta (which rolls months/years correctly) and
+# the ISO form leans on date.fromisoformat (which validates real calendar days).
+# These pin that contract at the edges where off-by-one/rollover bugs hide.
+
+
+def test_parse_due_date_tomorrow_rolls_over_month_end():
+    """Jan 31 + 1 day is Feb 1, not an invalid Jan 32 (timedelta rollover)."""
+    assert parse_due_date("tomorrow", today=date(2026, 1, 31)) == date(2026, 2, 1)
+
+
+def test_parse_due_date_plus_n_crosses_month_boundary():
+    assert parse_due_date("+5", today=date(2026, 1, 30)) == date(2026, 2, 4)
+
+
+def test_parse_due_date_plus_n_crosses_year_boundary():
+    assert parse_due_date("+2", today=date(2026, 12, 31)) == date(2027, 1, 2)
+
+
+def test_parse_due_date_accepts_leap_day_in_a_leap_year():
+    assert parse_due_date("2024-02-29", today=_TODAY) == date(2024, 2, 29)
+
+
+def test_parse_due_date_rejects_leap_day_in_a_non_leap_year():
+    """2025 is not a leap year, so Feb 29 is not a real date — reject it."""
+    with pytest.raises(DueDateParseError):
+        parse_due_date("2025-02-29", today=_TODAY)
+
+
+def test_parse_due_date_plus_n_lands_on_leap_day():
+    """Feb 28 2024 + 1 day is Feb 29 (leap year), not Mar 1."""
+    assert parse_due_date("+1", today=date(2024, 2, 28)) == date(2024, 2, 29)
+
+
 def test_due_date_parse_error_is_a_value_error_not_tasque_error():
     """Parse failures are input validation (ValueError), never persistence errors."""
     assert issubclass(DueDateParseError, ValueError)

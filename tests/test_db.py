@@ -421,7 +421,13 @@ def test_set_due_date_returns_todo(db):
 
 
 def test_due_date_survives_file_reopen(tmp_path):
-    """A due date written to disk survives a close/reopen through _row_to_todo."""
+    """A due date written to disk survives a close/reopen through _row_to_todo,
+    and reopening a v3 DB does not re-run migration 0003.
+
+    If 0003 (``ALTER TABLE ... ADD COLUMN due_date``) ran a second time it would
+    raise a duplicate-column MigrationError; the reopen succeeding and the schema
+    version staying at the ladder length pins 0003 as idempotent on reopen.
+    """
     path = tmp_path / "tasque.db"
     with Database(path) as first:
         saved = first.add(Todo.new("deadline"))
@@ -430,6 +436,7 @@ def test_due_date_survives_file_reopen(tmp_path):
     with Database(path) as second:
         fetched = second.get(saved.id)
         assert fetched.due_date == date(2026, 12, 1)
+        assert second.schema_version == len_migrations()  # 0003 not re-applied
 
 
 def test_update_leaves_due_date_untouched(db):

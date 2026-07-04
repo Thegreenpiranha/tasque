@@ -1684,3 +1684,62 @@ async def test_footer_due_mode_swaps_to_clear_due_when_empty(mem_db):
 
         hints = dict(_shown_hints(app.screen))
         assert hints.get("enter") == "Clear due"
+
+
+async def test_footer_due_mode_swaps_back_to_set_due_when_text_typed(mem_db):
+    """The swap is bidirectional: an undated row opens empty (Clear due), and
+    typing a date flips the Enter hint back to Set due on the Input.Changed."""
+    mem_db.add(Todo.new("task"))  # undated → bar opens empty
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.screen.query_one(TodoList).focus()
+        await pilot.press("D")
+        await pilot.pause()
+        assert dict(_shown_hints(app.screen)).get("enter") == "Clear due"
+
+        app.screen.query_one("#bar-input", Input).value = "today"
+        await pilot.pause()
+
+        assert dict(_shown_hints(app.screen)).get("enter") == "Set due"
+
+
+# --------------------------------------------------------------------------- #
+# Due escalation resolves to the right colour token — load-bearing #meta CSS
+# (Feature #7). Mirrors the priority done-dim computed-colour test above:
+# class-presence (-overdue / -due-today) can't tell $error from $warning, so a
+# regression that swapped or broke the `.-overdue > #meta` / `.-due-today >
+# #meta` rules would leave every has_class assertion green. Only the resolved
+# colour proves the escalation is actually tinted (feature-7.md §11,
+# due-dates.md §CSS, LEARNINGS 2026-07-03). Real TasqueApp so tasque.tcss loads.
+# --------------------------------------------------------------------------- #
+
+
+async def test_overdue_and_due_today_resolve_to_distinct_escalation_colours(mem_db):
+    overdue = mem_db.add(Todo.new("overdue"))
+    mem_db.set_due_date(overdue.id, _YESTERDAY)
+    today = mem_db.add(Todo.new("today"))
+    mem_db.set_due_date(today.id, _TODAY)
+    # Reference rows: high priority is $error, medium is $warning — the same two
+    # tokens the due rules use, so we assert the mapping without hard-coding RGB.
+    high = mem_db.add(Todo.new("high"))
+    mem_db.set_priority(high.id, Priority.HIGH)
+    medium = mem_db.add(Todo.new("medium"))
+    mem_db.set_priority(medium.id, Priority.MEDIUM)
+
+    app = TasqueApp(controller=_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        items = {item.todo_id: item for item in app.screen.query(TodoItem)}
+        overdue_colour = items[overdue.id].query_one("#meta").styles.color
+        today_colour = items[today.id].query_one("#meta").styles.color
+        error_colour = items[high.id].query_one("#priority", Static).styles.color
+        warning_colour = items[medium.id].query_one("#priority", Static).styles.color
+
+        # Overdue tints $error, due-today tints $warning — and the two escalation
+        # states are visibly distinct from each other.
+        assert overdue_colour == error_colour
+        assert today_colour == warning_colour
+        assert overdue_colour != today_colour
