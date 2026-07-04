@@ -6,6 +6,8 @@ observable DOM state, not private implementation details.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 from textual.app import App, ComposeResult
 from textual.widgets import Static
 
@@ -13,6 +15,12 @@ from tasque.models import Priority, Todo
 from tasque.widgets.empty_state import EmptyState
 from tasque.widgets.todo_item import TodoItem
 from tasque.widgets.todo_list import TodoList
+
+# Relative-to-real-today seeding keeps these pilot tests deterministic without
+# freezing the clock; the fixed-now boundary precision lives in test_models.py.
+_TODAY = date.today()
+_YESTERDAY = _TODAY - timedelta(days=1)
+_TOMORROW = _TODAY + timedelta(days=1)
 
 # --------------------------------------------------------------------------- #
 # Minimal test harnesses
@@ -421,3 +429,167 @@ def test_accessible_label_omits_priority_when_none():
     item = TodoItem(Todo(text="task", id=1, completed=False, priority=None))
     label = item.accessible_label
     assert "priority" not in label
+
+
+# --------------------------------------------------------------------------- #
+# Due-date slot rendering (Feature #7)
+# --------------------------------------------------------------------------- #
+
+
+def _due_text(item: TodoItem) -> str:
+    return str(item.query_one("#due", Static).render())
+
+
+async def test_no_due_date_renders_blank_slot():
+    todo = Todo(text="task", id=1, completed=False, due_date=None)
+    app = _ItemApp(todo)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        item = app.query_one(TodoItem)
+        assert _due_text(item).strip() == ""
+        assert not item.has_class("-overdue")
+        assert not item.has_class("-due-today")
+
+
+async def test_overdue_row_renders_overdue_word_and_class():
+    todo = Todo(text="task", id=1, completed=False, due_date=_YESTERDAY)
+    app = _ItemApp(todo)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        item = app.query_one(TodoItem)
+        assert "OVERDUE" in _due_text(item)
+        assert _YESTERDAY.strftime("%m-%d") in _due_text(item)
+        assert item.has_class("-overdue")
+        assert not item.has_class("-due-today")
+
+
+async def test_due_today_row_renders_due_today_word_and_class():
+    todo = Todo(text="task", id=1, completed=False, due_date=_TODAY)
+    app = _ItemApp(todo)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        item = app.query_one(TodoItem)
+        assert "due today" in _due_text(item)
+        assert item.has_class("-due-today")
+        assert not item.has_class("-overdue")
+
+
+async def test_future_row_renders_bare_date_no_class():
+    todo = Todo(text="task", id=1, completed=False, due_date=_TOMORROW)
+    app = _ItemApp(todo)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        item = app.query_one(TodoItem)
+        text = _due_text(item)
+        assert "OVERDUE" not in text
+        assert "due today" not in text
+        assert _TOMORROW.strftime("%m-%d") in text
+        assert not item.has_class("-overdue")
+        assert not item.has_class("-due-today")
+
+
+async def test_future_other_year_renders_full_iso():
+    """The year rule: a date outside the current year shows full YYYY-MM-DD."""
+    other_year = date(_TODAY.year + 1, 1, 15)
+    todo = Todo(text="task", id=1, completed=False, due_date=other_year)
+    app = _ItemApp(todo)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        item = app.query_one(TodoItem)
+        assert other_year.isoformat() in _due_text(item)
+
+
+async def test_completed_row_suppresses_overdue_shows_dashes():
+    """A done row never escalates: no -overdue class, #due reads '──'."""
+    todo = Todo(text="task", id=1, completed=True, due_date=_YESTERDAY)
+    app = _ItemApp(todo)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        item = app.query_one(TodoItem)
+        assert "──" in _due_text(item)
+        assert "OVERDUE" not in _due_text(item)
+        assert not item.has_class("-overdue")
+
+
+async def test_completing_overdue_row_clears_escalation():
+    """Toggling complete drops -overdue and flips #due to '──'; undo restores it."""
+    todo = Todo(text="task", id=5, completed=False, due_date=_YESTERDAY)
+    app = _ItemApp(todo)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        todo_list = app.query_one(TodoList)
+        item = app.query_one(TodoItem)
+        assert item.has_class("-overdue")
+
+        todo_list.update_todo(Todo(text="task", id=5, completed=True, due_date=_YESTERDAY))
+        await pilot.pause()
+        assert not item.has_class("-overdue")
+        assert "──" in _due_text(item)
+
+        todo_list.update_todo(Todo(text="task", id=5, completed=False, due_date=_YESTERDAY))
+        await pilot.pause()
+        assert item.has_class("-overdue")
+        assert "OVERDUE" in _due_text(item)
+
+
+async def test_update_todo_renders_due_slot_without_rebuild():
+    todo = Todo(text="task", id=5, completed=False, due_date=None)
+    app = _ItemApp(todo)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        todo_list = app.query_one(TodoList)
+        todo_list.update_todo(Todo(text="task", id=5, completed=False, due_date=_TODAY))
+        await pilot.pause()
+
+        item = app.query_one(TodoItem)
+        assert "due today" in _due_text(item)
+        assert item.has_class("-due-today")
+
+
+# --------------------------------------------------------------------------- #
+# Accessible label with due date (Feature #7)
+# --------------------------------------------------------------------------- #
+
+
+def test_accessible_label_includes_overdue():
+    item = TodoItem(Todo(text="task", id=1, completed=False, due_date=_YESTERDAY))
+    assert "overdue" in item.accessible_label
+
+
+def test_accessible_label_includes_due_today():
+    item = TodoItem(Todo(text="task", id=1, completed=False, due_date=_TODAY))
+    assert "due today" in item.accessible_label
+
+
+def test_accessible_label_future_uses_full_iso():
+    """A future row reads the full ISO date, not the compact MM-DD (unambiguous)."""
+    item = TodoItem(Todo(text="task", id=1, completed=False, due_date=_TOMORROW))
+    assert f"due {_TOMORROW.isoformat()}" in item.accessible_label
+
+
+def test_accessible_label_omits_due_when_none():
+    item = TodoItem(Todo(text="task", id=1, completed=False, due_date=None))
+    assert "due" not in item.accessible_label
+
+
+def test_accessible_label_omits_due_when_completed():
+    """A completed row's deadline is moot — the label speaks no due word."""
+    item = TodoItem(Todo(text="task", id=1, completed=True, due_date=_YESTERDAY))
+    label = item.accessible_label
+    assert "overdue" not in label
+    assert "due" not in label
+
+
+def test_accessible_label_order_is_completion_priority_text_due():
+    item = TodoItem(
+        Todo(text="Report", id=1, completed=False, priority=Priority.HIGH, due_date=_TODAY)
+    )
+    assert item.accessible_label == "incomplete, high priority, Report, due today"

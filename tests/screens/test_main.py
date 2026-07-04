@@ -9,6 +9,8 @@ directly.  Textual's `App.query()` does not traverse into pushed screens.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import pytest
 from textual.app import App
 from textual.widgets import Input, Static
@@ -1251,3 +1253,434 @@ async def test_done_high_priority_tag_dims_instead_of_error_colour(mem_db):
         assert done_priority_colour != active_colour
         # ... and dims to the same disabled colour as the done row's title.
         assert done_priority_colour == done_title_colour
+
+
+# --------------------------------------------------------------------------- #
+# Due date — `D` set/clear flow (Feature #7)
+# --------------------------------------------------------------------------- #
+
+_TODAY = date.today()
+_YESTERDAY = _TODAY - timedelta(days=1)
+_TOMORROW = _TODAY + timedelta(days=1)
+
+
+def _due_text(screen) -> str:
+    return str(screen.query_one(TodoItem).query_one("#due", Static).render())
+
+
+async def test_D_opens_due_bar_empty_for_undated_row(mem_db):
+    mem_db.add(Todo.new("task"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one(TodoList).focus()
+        await pilot.press("D")
+        await pilot.pause()
+
+        bar = screen.query_one(InputBar)
+        assert not bar.has_class("-hidden")
+        assert bar.border_title == "Due date"
+        assert screen.query_one("#bar-input", Input).value == ""
+
+
+async def test_D_prefills_bar_with_existing_due_date(mem_db):
+    saved = mem_db.add(Todo.new("task"))
+    mem_db.set_due_date(saved.id, date(2026, 7, 10))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one(TodoList).focus()
+        await pilot.press("D")
+        await pilot.pause()
+
+        assert screen.query_one("#bar-input", Input).value == "2026-07-10"
+
+
+async def test_setting_due_date_persists_and_renders(mem_db):
+    saved = mem_db.add(Todo.new("task"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one(TodoList).focus()
+        await pilot.press("D")
+        await pilot.pause()
+        screen.query_one("#bar-input", Input).value = "today"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert mem_db.get(saved.id).due_date == _TODAY
+        assert "due today" in _due_text(screen)
+        assert screen.query_one(InputBar).has_class("-hidden")
+        assert screen.query_one(TodoList).has_focus
+
+
+async def test_clearing_due_date_with_blank_field(mem_db):
+    saved = mem_db.add(Todo.new("task"))
+    mem_db.set_due_date(saved.id, date(2026, 7, 10))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one(TodoList).focus()
+        await pilot.press("D")
+        await pilot.pause()
+        screen.query_one("#bar-input", Input).value = ""
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert mem_db.get(saved.id).due_date is None
+        assert _due_text(screen).strip() == ""
+        assert screen.query_one(InputBar).has_class("-hidden")
+
+
+async def test_junk_due_date_pulses_invalid_and_keeps_bar_open(mem_db):
+    saved = mem_db.add(Todo.new("task"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one(TodoList).focus()
+        await pilot.press("D")
+        await pilot.pause()
+        screen.query_one("#bar-input", Input).value = "not a date"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        bar = screen.query_one(InputBar)
+        assert bar.has_class("-invalid")
+        assert not bar.has_class("-hidden")  # stays open to fix
+        assert screen.query_one("#bar-input", Input).value == "not a date"
+        assert mem_db.get(saved.id).due_date is None  # nothing persisted
+
+
+async def test_overdue_seed_renders_overdue_and_class(mem_db):
+    saved = mem_db.add(Todo.new("late task"))
+    mem_db.set_due_date(saved.id, _YESTERDAY)
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        assert "OVERDUE" in _due_text(screen)
+        assert screen.query_one(TodoItem).has_class("-overdue")
+
+
+async def test_completing_overdue_row_clears_escalation_in_created_sort(mem_db):
+    saved = mem_db.add(Todo.new("late task"))
+    mem_db.set_due_date(saved.id, _YESTERDAY)
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one(TodoList).focus()
+        await pilot.press("space")  # complete it
+        await pilot.pause()
+
+        item = screen.query_one(TodoItem)
+        assert item.has_class("-done")
+        assert not item.has_class("-overdue")
+        assert "──" in _due_text(screen)
+
+
+async def test_D_key_inert_while_input_bar_open(mem_db):
+    """D is a TodoList binding — with the bar open it types a literal, no second bar."""
+    mem_db.add(Todo.new("task"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        await pilot.press("a")  # open add bar; input takes focus
+        await pilot.pause()
+        await pilot.press("D")  # should type "D", not reopen in due mode
+        await pilot.pause()
+
+        assert screen.query_one(InputBar).border_title == "New task"  # still add mode
+        assert "D" in screen.query_one("#bar-input", Input).value
+
+
+async def test_D_request_failure_shows_error_toast_and_opens_no_bar(mem_db):
+    mem_db.add(Todo.new("task"))
+    controller = _make_controller(mem_db)
+
+    def _boom(todo_id):
+        raise TodoNotFoundError(todo_id)
+
+    controller.get_todo = _boom  # type: ignore[method-assign]
+    app = _TestApp(controller)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        messages = _capture_notifications(app)
+        app.screen.query_one(TodoList).focus()
+        await pilot.press("D")
+        await pilot.pause()
+
+        assert any("Error" in m for m in messages)
+        assert app.screen.query_one(InputBar).has_class("-hidden")
+
+
+async def test_set_due_failure_shows_error_toast(mem_db):
+    """Row deleted out from under the bar → toast, bar closes, no crash."""
+    mem_db.add(Todo.new("task"))
+    controller = _make_controller(mem_db)
+    app = _TestApp(controller)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        messages = _capture_notifications(app)
+        screen = app.screen
+        screen.query_one(TodoList).focus()
+        await pilot.press("D")
+        await pilot.pause()
+
+        # Break the write after the bar is open.
+        def _boom(todo_id, due):
+            raise TodoNotFoundError(todo_id)
+
+        controller.set_due_date = _boom  # type: ignore[method-assign]
+        screen.query_one("#bar-input", Input).value = "today"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert any("Error" in m for m in messages)
+        assert isinstance(app.screen, MainScreen)
+        assert screen.query_one(InputBar).has_class("-hidden")
+
+
+async def test_p_in_due_sort_stays_in_place(mem_db):
+    """A priority cycle does not re-rank in DUE sort (only a due change does)."""
+    a = mem_db.add(Todo.new("a"))
+    mem_db.set_due_date(a.id, _TODAY)
+    b = mem_db.add(Todo.new("b"))
+    mem_db.set_due_date(b.id, _TOMORROW)
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        todo_list = screen.query_one(TodoList)
+        todo_list.focus()
+        await pilot.press("s")  # → PRIORITY
+        await pilot.pause()
+        await pilot.press("s")  # → DUE
+        await pilot.pause()
+        # a (today) is first; cursor on a.
+        assert todo_list.current_todo_id == a.id
+        await pilot.press("p")  # cycle a's priority; DUE order unaffected
+        await pilot.pause()
+        assert [i.todo_id for i in screen.query(TodoItem)] == [a.id, b.id]
+
+
+# --------------------------------------------------------------------------- #
+# Due date — sort cycle & re-rank (Feature #7)
+# --------------------------------------------------------------------------- #
+
+
+async def test_s_cycles_created_priority_due_created(mem_db):
+    """The `s` sort cycle is three-way: creation → priority → due → creation."""
+    mem_db.add(Todo.new("task"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        panel = screen.query_one("#list-panel")
+
+        assert "by priority" not in (panel.border_title or "")
+        assert "by due" not in (panel.border_title or "")
+
+        await pilot.press("s")  # → priority
+        await pilot.pause()
+        assert "by priority" in (panel.border_title or "")
+
+        await pilot.press("s")  # → due
+        await pilot.pause()
+        assert "by due" in (panel.border_title or "")
+        assert "by priority" not in (panel.border_title or "")
+
+        await pilot.press("s")  # → creation (suffix-free)
+        await pilot.pause()
+        assert "by due" not in (panel.border_title or "")
+        assert "by priority" not in (panel.border_title or "")
+
+
+async def test_s_to_due_shows_due_date_notification(mem_db):
+    mem_db.add(Todo.new("task"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        messages = _capture_notifications(app)
+        await pilot.press("s")  # priority
+        await pilot.pause()
+        await pilot.press("s")  # due
+        await pilot.pause()
+
+        assert any("due date" in m.lower() for m in messages)
+
+
+async def test_due_sort_orders_earliest_first_done_demoted(mem_db):
+    later = mem_db.add(Todo.new("later"))
+    mem_db.set_due_date(later.id, _TOMORROW)
+    sooner = mem_db.add(Todo.new("sooner"))
+    mem_db.set_due_date(sooner.id, _TODAY)
+    done = mem_db.add(Todo.new("done"))
+    mem_db.set_due_date(done.id, _YESTERDAY)
+    mem_db.set_completed(done.id, True)
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        await pilot.press("s")  # priority
+        await pilot.pause()
+        await pilot.press("s")  # due
+        await pilot.pause()
+
+        ids = [i.todo_id for i in screen.query(TodoItem)]
+        assert ids == [sooner.id, later.id, done.id]  # active earliest-first, done last
+
+
+async def test_setting_due_in_due_sort_reranks_and_cursor_follows(mem_db):
+    """In DUE sort, giving a task a later date re-ranks it; the cursor follows."""
+    a = mem_db.add(Todo.new("a"))
+    mem_db.set_due_date(a.id, _TOMORROW)
+    b = mem_db.add(Todo.new("b"))
+    mem_db.set_due_date(b.id, _TODAY)
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        todo_list = screen.query_one(TodoList)
+        todo_list.focus()
+        # keep_id follows the load cursor (a) through both sorts.
+        await pilot.press("s")  # priority
+        await pilot.pause()
+        await pilot.press("s")  # due — order [b (today), a (tomorrow)], cursor still on a
+        await pilot.pause()
+        # Move the cursor onto b (index 0 in DUE order).
+        await pilot.press("k")
+        await pilot.pause()
+        assert todo_list.current_todo_id == b.id
+
+        # Give b a far-future date so it sinks below a; cursor must follow b.
+        await pilot.press("D")
+        await pilot.pause()
+        screen.query_one("#bar-input", Input).value = "+30"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert [i.todo_id for i in screen.query(TodoItem)] == [a.id, b.id]
+        assert todo_list.current_todo_id == b.id  # cursor followed the task
+
+
+async def test_setting_due_in_created_sort_stays_in_place(mem_db):
+    """In creation order, setting a due date is a cheap in-place re-render (no move)."""
+    a = mem_db.add(Todo.new("a"))
+    mem_db.add(Todo.new("b"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        todo_list = screen.query_one(TodoList)
+        todo_list.focus()
+        # cursor on a (index 0)
+        await pilot.press("D")
+        await pilot.pause()
+        screen.query_one("#bar-input", Input).value = "today"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # a keeps its creation-order slot; cursor stays on a.
+        items = list(screen.query(TodoItem))
+        assert items[0].todo_id == a.id
+        assert todo_list.current_todo_id == a.id
+
+
+async def test_toggle_in_due_sort_demotes_done_cursor_holds_index(mem_db):
+    """Completing in DUE sort demotes the task; cursor holds its index (next slides in)."""
+    a = mem_db.add(Todo.new("a"))
+    mem_db.set_due_date(a.id, _TODAY)
+    b = mem_db.add(Todo.new("b"))
+    mem_db.set_due_date(b.id, _TOMORROW)
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        todo_list = screen.query_one(TodoList)
+        todo_list.focus()
+        await pilot.press("s")  # priority
+        await pilot.pause()
+        await pilot.press("s")  # due — cursor on a (index 0)
+        await pilot.pause()
+        assert todo_list.current_todo_id == a.id
+
+        await pilot.press("space")  # complete a → sinks to done band
+        await pilot.pause()
+
+        # Cursor holds index 0 — b slides in.
+        assert todo_list.current_todo_id == b.id
+
+
+# --------------------------------------------------------------------------- #
+# Due date — footer hints (Feature #7)
+# --------------------------------------------------------------------------- #
+
+
+async def test_footer_shows_due_hint_while_list_focused(mem_db):
+    mem_db.add(Todo.new("task"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.screen.query_one(TodoList).focus()
+        await pilot.pause()
+
+        hints = dict(_shown_hints(app.screen))
+        assert hints.get("D") == "Due"
+
+
+async def test_footer_due_mode_shows_set_due_with_text(mem_db):
+    saved = mem_db.add(Todo.new("task"))
+    mem_db.set_due_date(saved.id, date(2026, 7, 10))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.screen.query_one(TodoList).focus()
+        await pilot.press("D")
+        await pilot.pause()
+
+        hints = dict(_shown_hints(app.screen))
+        assert hints.get("enter") == "Set due"
+        assert hints.get("escape") == "Cancel"
+
+
+async def test_footer_due_mode_swaps_to_clear_due_when_empty(mem_db):
+    saved = mem_db.add(Todo.new("task"))
+    mem_db.set_due_date(saved.id, date(2026, 7, 10))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.screen.query_one(TodoList).focus()
+        await pilot.press("D")
+        await pilot.pause()
+        app.screen.query_one("#bar-input", Input).value = ""
+        await pilot.pause()
+
+        hints = dict(_shown_hints(app.screen))
+        assert hints.get("enter") == "Clear due"

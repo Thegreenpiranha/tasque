@@ -5,9 +5,16 @@ All tests use an in-memory SQLite database — never the user's database.
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
-from tasque.controller import TodoController, TodoSort
+from tasque.controller import (
+    DueDateParseError,
+    TodoController,
+    TodoSort,
+    parse_due_date,
+)
 from tasque.db import Database, TodoNotFoundError
 from tasque.models import Priority, Todo
 
@@ -275,3 +282,62 @@ def test_list_todos_default_sort_unchanged(controller, db):
     a = controller.add_todo("a")
     b = controller.add_todo("b")
     assert [t.id for t in controller.list_todos()] == [a.id, b.id]
+
+
+# --------------------------------------------------------------------------- #
+# set_due_date (Feature #7)
+# --------------------------------------------------------------------------- #
+
+
+def test_set_due_date_returns_updated_todo(controller):
+    added = controller.add_todo("task")
+    result = controller.set_due_date(added.id, date(2026, 7, 10))
+    assert isinstance(result, Todo)
+    assert result.due_date == date(2026, 7, 10)
+    assert controller.get_todo(added.id).due_date == date(2026, 7, 10)
+
+
+def test_set_due_date_clears_with_none(controller):
+    added = controller.add_todo("task")
+    controller.set_due_date(added.id, date(2026, 7, 10))
+    result = controller.set_due_date(added.id, None)
+    assert result.due_date is None
+    assert controller.get_todo(added.id).due_date is None
+
+
+def test_set_due_date_raises_for_missing_id(controller):
+    """The _apply path propagates the domain error (row gone)."""
+    with pytest.raises(TodoNotFoundError):
+        controller.set_due_date(999, date(2026, 7, 10))
+
+
+def test_set_due_date_persists_through_list_todos(controller):
+    added = controller.add_todo("task")
+    controller.set_due_date(added.id, date(2026, 7, 10))
+    todos = controller.list_todos()
+    assert todos[0].due_date == date(2026, 7, 10)
+
+
+def test_list_todos_with_due_sort_passes_through_to_db(controller):
+    a = controller.add_todo("a")
+    b = controller.add_todo("b")
+    controller.set_due_date(a.id, date(2027, 1, 1))
+    controller.set_due_date(b.id, date(2026, 1, 1))
+
+    result = controller.list_todos(sort=TodoSort.DUE)
+    assert result[0].id == b.id  # earliest first
+
+
+# --------------------------------------------------------------------------- #
+# Re-exports reachable through the controller layer (Feature #7)
+# --------------------------------------------------------------------------- #
+
+
+def test_parse_due_date_reachable_via_controller_reexport():
+    """The screen imports parse_due_date from the controller, not models/db."""
+    assert parse_due_date("today", today=date(2026, 7, 4)) == date(2026, 7, 4)
+
+
+def test_due_date_parse_error_reachable_via_controller_reexport():
+    with pytest.raises(DueDateParseError):
+        parse_due_date("not a date", today=date(2026, 7, 4))

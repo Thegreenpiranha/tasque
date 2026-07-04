@@ -72,9 +72,14 @@ def _migration_0002_add_priority(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE todos ADD COLUMN priority INTEGER")  # nullable, no default → NULL
 
 
+def _migration_0003_add_due_date(conn: sqlite3.Connection) -> None:
+    conn.execute("ALTER TABLE todos ADD COLUMN due_date TEXT")  # nullable, ISO 'YYYY-MM-DD' or NULL
+
+
 _MIGRATIONS = [
     _migration_0001_create_todos,
     _migration_0002_add_priority,
+    _migration_0003_add_due_date,
 ]
 
 
@@ -171,9 +176,13 @@ class Database:
         ``TodoSort.CREATED`` (default) preserves insertion order (``ORDER BY
         id``). ``TodoSort.PRIORITY`` ranks by urgency: active before done,
         high → medium → low → none, stable creation-order tie-break.
+        ``TodoSort.DUE`` ranks by earliest due date: active before done,
+        soonest → latest, no-due-date last, stable creation-order tie-break.
         """
         if sort is TodoSort.PRIORITY:
             order = "ORDER BY completed ASC, priority DESC NULLS LAST, id ASC"
+        elif sort is TodoSort.DUE:
+            order = "ORDER BY completed ASC, due_date ASC NULLS LAST, id ASC"
         else:
             order = "ORDER BY id"
         rows = self._conn.execute(f"SELECT * FROM todos {order}").fetchall()
@@ -220,6 +229,22 @@ class Database:
         cur = self._conn.execute(
             "UPDATE todos SET priority = ? WHERE id = ?",
             (int(priority) if priority is not None else None, todo_id),
+        )
+        if cur.rowcount == 0:
+            raise TodoNotFoundError(todo_id)
+        self._conn.commit()
+        return self.get(todo_id)
+
+    def set_due_date(self, todo_id: int, due: date | None) -> Todo:
+        """Set (or clear, with ``due=None``) a todo's due date and return it.
+
+        Third of the :meth:`set_completed` / :meth:`set_priority` family. Stores
+        the ISO ``YYYY-MM-DD`` string (or SQL NULL for none) — ``update()`` is
+        deliberately NOT widened to write due_date so text edits never clobber it.
+        """
+        cur = self._conn.execute(
+            "UPDATE todos SET due_date = ? WHERE id = ?",
+            (due.isoformat() if due is not None else None, todo_id),
         )
         if cur.rowcount == 0:
             raise TodoNotFoundError(todo_id)
