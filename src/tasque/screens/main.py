@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -10,7 +11,13 @@ from textual.containers import Container
 from textual.screen import Screen
 from textual.widgets import Footer, Header, ListView
 
-from tasque.controller import TasqueError, TodoController, TodoSort
+from tasque.controller import (
+    DueDateParseError,
+    TasqueError,
+    TodoController,
+    TodoSort,
+    parse_due_date,
+)
 from tasque.screens.delete_confirm import DeleteConfirmScreen
 from tasque.widgets.empty_state import EmptyState
 from tasque.widgets.input_bar import InputBar
@@ -19,6 +26,14 @@ from tasque.widgets.todo_list import TodoList
 logger = logging.getLogger("tasque.screens.main")
 
 _ADD_CTA = "Press  a  to add your first task"
+
+# The `s` sort cycle and each mode's transient-toast label (feature-7.md §7d).
+_SORT_CYCLE: tuple[TodoSort, ...] = (TodoSort.CREATED, TodoSort.PRIORITY, TodoSort.DUE)
+_SORT_LABEL: dict[TodoSort, str] = {
+    TodoSort.CREATED: "creation order",
+    TodoSort.PRIORITY: "priority",
+    TodoSort.DUE: "due date",
+}
 
 
 class MainScreen(Screen[None]):
@@ -100,14 +115,17 @@ class MainScreen(Screen[None]):
     def _update_counts(self, todos: list) -> None:
         """Refresh only the panel border-title counts (no list rebuild).
 
-        Appends ``· by priority`` when the active sort is PRIORITY so the mode
-        survives the toast disappearing (priority.md §`s` / OQ2).
+        Appends ``· by priority`` / ``· by due`` for the non-default sorts so the
+        mode survives the toast disappearing (priority.md §`s` / OQ2; due-dates.md
+        §`s`). Creation order (default) stays suffix-free.
         """
         active = sum(1 for t in todos if not t.completed)
         done = sum(1 for t in todos if t.completed)
         title = f"Inbox · {active} active · {done} done"
         if self._sort is TodoSort.PRIORITY:
             title += " · by priority"
+        elif self._sort is TodoSort.DUE:
+            title += " · by due"
         self.query_one("#list-panel", Container).border_title = title
 
     # -- event handlers: highlight ------------------------------------------ #
@@ -127,10 +145,11 @@ class MainScreen(Screen[None]):
         except TasqueError as exc:
             self.app.notify(f"Error: {exc}", severity="error")
             return
-        if self._sort is TodoSort.PRIORITY:
-            # Completing / uncompleting a task moves it between active and done
-            # bands in priority sort — re-sort and land cursor by INDEX (the
-            # next active task slides into the vacated slot), not by task id.
+        if self._sort is not TodoSort.CREATED:
+            # PRIORITY and DUE both share the `completed ASC` primary key, so
+            # completing / uncompleting a task moves it between the active and
+            # done bands — re-sort and land cursor by INDEX (the next active task
+            # slides into the vacated slot), not by task id.
             await self.refresh_todos()
             tl = self.query_one(TodoList)
             if len(tl) > 0:
@@ -168,12 +187,24 @@ class MainScreen(Screen[None]):
             return
         self.query_one(InputBar).open_edit(todo.id, todo.text)
 
+    def on_todo_list_due_date_edit_requested(self, event: TodoList.DueDateEditRequested) -> None:
+        event.stop()
+        try:
+            todo = self._controller.get_todo(event.todo_id)
+        except TasqueError as exc:
+            self.app.notify(f"Error: {exc}", severity="error")
+            return
+        prefill = todo.due_date.isoformat() if todo.due_date else ""
+        self.query_one(InputBar).open_due(todo.id, prefill)
+
     async def on_input_bar_submitted(self, event: InputBar.Submitted) -> None:
         event.stop()
         if event.mode == "add":
             await self._handle_add(event.value)
-        else:
+        elif event.mode == "edit":
             await self._handle_edit(event.value)
+        else:  # "due"
+            await self._handle_set_due(event.value)
 
     def on_input_bar_cancelled(self, event: InputBar.Cancelled) -> None:
         event.stop()
@@ -208,6 +239,31 @@ class MainScreen(Screen[None]):
             return
         todo_list.update_todo(updated)
         input_bar.close()
+        todo_list.focus()
+
+    async def _handle_set_due(self, raw: str) -> None:
+        input_bar = self.query_one(InputBar)
+        todo_list = self.query_one(TodoList)
+        try:
+            due = None if not raw else parse_due_date(raw, today=date.today())
+        except DueDateParseError:
+            input_bar.flash_invalid()  # keep bar open, input preserved
+            return
+        try:
+            updated = self._controller.set_due_date(input_bar.editing_id, due)
+        except TasqueError as exc:
+            self.app.notify(f"Error: {exc}", severity="error")
+            input_bar.close()
+            await self.refresh_todos()
+            todo_list.focus()
+            return
+        input_bar.close()
+        if self._sort is TodoSort.DUE:
+            # A changed due date can re-rank the row — rebuild, cursor follows it.
+            await self.refresh_todos(keep_id=updated.id)
+        else:
+            # Position stable (CREATED/PRIORITY) — cheap in-place re-render.
+            todo_list.update_todo(updated)
         todo_list.focus()
 
     # -- event handlers: delete --------------------------------------------- #
@@ -258,11 +314,12 @@ class MainScreen(Screen[None]):
         input_bar.open_add()
 
     async def action_cycle_sort(self) -> None:
-        """Toggle between creation order and priority sort."""
-        self._sort = TodoSort.PRIORITY if self._sort is TodoSort.CREATED else TodoSort.CREATED
+        """Cycle the sort mode: creation order → by priority → by due → …."""
+        i = _SORT_CYCLE.index(self._sort)
+        self._sort = _SORT_CYCLE[(i + 1) % len(_SORT_CYCLE)]
         keep = self.query_one(TodoList).current_todo_id
         await self.refresh_todos(keep_id=keep)
-        self.app.notify(f"Sorted by {self._sort.name.lower()}", severity="information")
+        self.app.notify(f"Sorted by {_SORT_LABEL[self._sort]}", severity="information")
 
     def action_help(self) -> None:
         """Show the help overlay. Implemented in a future feature."""

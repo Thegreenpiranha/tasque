@@ -253,6 +253,184 @@ async def test_escape_posts_cancelled():
         assert app.cancelled[0].mode == "add"
 
 
+# --------------------------------------------------------------------------- #
+# Due mode (Feature #7)
+# --------------------------------------------------------------------------- #
+
+
+async def test_open_due_shows_bar_with_due_title_and_prefill():
+    app = _BarApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        bar = app.query_one(InputBar)
+        bar.open_due(7, "2026-07-10")
+        await pilot.pause()
+
+        field = app.query_one("#bar-input", Input)
+        assert not bar.has_class("-hidden")
+        assert bar.border_title == "Due date"
+        assert field.value == "2026-07-10"
+        assert field.cursor_position == len("2026-07-10")
+        assert bar.editing_id == 7
+
+
+async def test_open_due_empty_prefill_shows_grammar_placeholder():
+    app = _BarApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        bar = app.query_one(InputBar)
+        bar.open_due(7, "")
+        await pilot.pause()
+
+        field = app.query_one("#bar-input", Input)
+        assert field.value == ""
+        assert field.placeholder == "YYYY-MM-DD, today, tomorrow, +3"
+
+
+async def test_due_mode_non_empty_enter_posts_submitted_due():
+    app = _BarApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        bar = app.query_one(InputBar)
+        bar.open_due(3, "")
+        await pilot.pause()
+        app.query_one("#bar-input", Input).value = "tomorrow"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert len(app.submitted) == 1
+        assert app.submitted[0].value == "tomorrow"
+        assert app.submitted[0].mode == "due"
+
+
+async def test_due_mode_empty_enter_posts_submitted_due_for_clear():
+    """Blank field in due mode is VALID and means 'clear' — posts Submitted('', 'due')."""
+    app = _BarApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        bar = app.query_one(InputBar)
+        bar.open_due(3, "2026-07-10")
+        await pilot.pause()
+        app.query_one("#bar-input", Input).value = ""
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert len(app.submitted) == 1
+        assert app.submitted[0].value == ""
+        assert app.submitted[0].mode == "due"
+        assert app.cancelled == []
+        assert not bar.has_class("-invalid")  # empty is not invalid here
+
+
+async def test_due_mode_footer_shows_set_due_when_field_has_text():
+    app = _BarApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        bar = app.query_one(InputBar)
+        bar.open_due(1, "2026-07-10")
+        await pilot.pause()
+
+        # The Set-due Enter label is active with text; Clear-due is not.
+        assert bar.check_action("submit_due", ()) is True
+        assert bar.check_action("clear_due", ()) is False
+
+
+async def test_due_mode_footer_swaps_to_clear_due_when_field_emptied():
+    app = _BarApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        bar = app.query_one(InputBar)
+        bar.open_due(1, "2026-07-10")
+        await pilot.pause()
+        app.query_one("#bar-input", Input).value = ""
+        await pilot.pause()
+
+        # Backspacing the date away flips the Enter hint to Clear due.
+        assert bar.check_action("clear_due", ()) is True
+        assert bar.check_action("submit_due", ()) is False
+
+
+async def test_due_mode_escape_posts_cancelled():
+    app = _BarApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        bar = app.query_one(InputBar)
+        bar.open_due(1, "2026-07-10")
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert len(app.cancelled) == 1
+        assert app.cancelled[0].mode == "due"
+        assert app.submitted == []
+
+
+async def test_flash_invalid_pulses_and_keeps_bar_open():
+    """The screen calls flash_invalid() on a parse failure it detects."""
+    app = _BarApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        bar = app.query_one(InputBar)
+        bar.open_due(1, "")
+        await pilot.pause()
+        app.query_one("#bar-input", Input).value = "garbage"
+        bar.flash_invalid()
+        await pilot.pause()
+
+        assert bar.has_class("-invalid")
+        assert not bar.has_class("-hidden")  # stays open for the user to fix
+        assert app.query_one("#bar-input", Input).value == "garbage"  # input intact
+
+
+async def test_flash_invalid_shows_parse_hint_in_border_subtitle():
+    """flash_invalid surfaces the spec's inline hint (due-dates.md Q3), so the
+    parse-failure feedback is carried by words, not the border hue alone."""
+    app = _BarApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        bar = app.query_one(InputBar)
+        bar.open_due(1, "")
+        await pilot.pause()
+        app.query_one("#bar-input", Input).value = "garbage"
+        bar.flash_invalid()
+        await pilot.pause()
+
+        assert bar.border_subtitle == "Can't read that date — try YYYY-MM-DD, today, +3"
+
+
+async def test_empty_add_pulse_shows_no_parse_hint():
+    """The empty-add pulse (Feature #5) carries no due-parse hint — that inline
+    copy is specific to the due parse-failure path, never the empty-submit pulse."""
+    app = _BarApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        bar = app.query_one(InputBar)
+        bar.open_add()
+        await pilot.pause()
+        await pilot.press("enter")  # empty field → pulse, but no hint
+        await pilot.pause()
+
+        assert bar.has_class("-invalid")
+        assert not bar.border_subtitle
+
+
+async def test_reopening_bar_clears_a_stale_parse_hint():
+    """A hint from a prior due session does not linger when the bar reopens."""
+    app = _BarApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        bar = app.query_one(InputBar)
+        bar.open_due(1, "")
+        await pilot.pause()
+        bar.flash_invalid()
+        await pilot.pause()
+        assert bar.border_subtitle  # hint is showing
+
+        bar.open_due(2, "")  # reopen for another row
+        await pilot.pause()
+        assert not bar.border_subtitle  # cleared on reopen
+
+
 async def test_escape_still_cancels_after_a_successful_add():
     """Once ≥1 task has been added, Esc reads "Done" but still closes the bar
     (the "Done"-labelled escape binding, input-bar.md § Footer hints)."""

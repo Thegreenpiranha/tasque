@@ -20,15 +20,15 @@ class TodoList(ListView):
     Navigation bindings add vim-style ``j``/``k``, top/bottom ``g``/``G``,
     and page jumps ``Ctrl+d``/``Ctrl+u``.
 
-    Intent messages (seams for Features #5 and #6) are defined here so the
-    screen can register handlers before those features land.  Feature #5 adds
-    the bindings that *post* the toggle/edit/delete intents (``Space``/``Enter``,
-    ``e``, ``d``); ``p`` (priority) is still deferred to Feature #6.
+    Intent messages let the screen register handlers without the list touching
+    the controller: Feature #5 posts toggle/edit/delete (``Space``/``Enter``,
+    ``e``, ``d``), Feature #6 adds ``p`` (priority cycle), Feature #7 adds ``D``
+    (set/clear due date).
 
     These action keys only fire while the ``TodoList`` holds focus — when the
     InputBar or the delete modal is open, the list is blurred (or input-trapped),
-    so no toggle/edit/delete can fire behind them (the structural state-guard,
-    ``docs/architecture/feature-5.md`` §6).
+    so no toggle/edit/delete/priority/due can fire behind them (the structural
+    state-guard, ``docs/architecture/feature-5.md`` §6).
     """
 
     BINDINGS = [
@@ -51,6 +51,8 @@ class TodoList(ListView):
         Binding("d", "delete", "Delete", show=True),
         # Feature #6: priority cycle and sort toggle.
         Binding("p", "cycle_priority", "Priority", show=True),
+        # Feature #7: set/clear due date. Shift+D — d's attribute sibling on the row.
+        Binding("D", "edit_due", "Due", show=True),
     ]
 
     # -- Intent message seams (Features #5 / #6) ----------------------------- #
@@ -78,6 +80,13 @@ class TodoList(ListView):
 
     class PriorityCycleRequested(Message):
         """Posted when the user requests cycling the current todo's priority. (Feature #6)"""
+
+        def __init__(self, todo_id: int) -> None:
+            super().__init__()
+            self.todo_id = todo_id
+
+    class DueDateEditRequested(Message):
+        """Posted when the user requests setting the current todo's due date. (Feature #7)"""
 
         def __init__(self, todo_id: int) -> None:
             super().__init__()
@@ -155,6 +164,12 @@ class TodoList(ListView):
         todo_id = self.current_todo_id
         if todo_id is not None:
             self.post_message(self.PriorityCycleRequested(todo_id))
+
+    def action_edit_due(self) -> None:
+        """Request a due-date edit on the highlighted row (no-op if empty)."""
+        todo_id = self.current_todo_id
+        if todo_id is not None:
+            self.post_message(self.DueDateEditRequested(todo_id))
 
     # -- navigation actions ------------------------------------------------- #
 

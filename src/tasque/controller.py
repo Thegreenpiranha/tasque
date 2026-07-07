@@ -18,17 +18,35 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
+from datetime import date
 from typing import Protocol, runtime_checkable
 
 from tasque.db import Database, TasqueError
-from tasque.models import Priority, Todo, TodoSort, next_priority
+from tasque.models import (
+    DueDateParseError,
+    Priority,
+    Todo,
+    TodoSort,
+    next_priority,
+    parse_due_date,
+)
 
 logger = logging.getLogger("tasque.controller")
 
 # Re-exported so the UI layer accesses domain types through the controller —
 # the layer it is allowed to import — rather than reaching into ``db.py`` or
 # ``models.py`` directly (see CLAUDE.md § Architectural Rules → Layer boundaries).
-__all__ = ["Command", "TasqueError", "TodoController", "TodoSort"]
+# ``parse_due_date`` / ``DueDateParseError`` are re-exported (from ``models``) so
+# the screen builds/validates a due date via the controller, symmetric with
+# ``TodoSort`` (Feature #7).
+__all__ = [
+    "Command",
+    "DueDateParseError",
+    "TasqueError",
+    "TodoController",
+    "TodoSort",
+    "parse_due_date",
+]
 
 
 # --------------------------------------------------------------------------- #
@@ -151,6 +169,25 @@ class _CyclePriorityCommand:
         self._db.set_priority(self._todo_id, self._prev)
 
 
+class _SetDueDateCommand:
+    def __init__(self, db: Database, todo_id: int, due: date | None) -> None:
+        self._db = db
+        self._todo_id = todo_id
+        self._due = due
+        self._prev: date | None = None
+        self.result: Todo | None = None
+
+    def execute(self) -> None:
+        current = self._db.get(self._todo_id)  # raises TodoNotFoundError if gone
+        self._prev = current.due_date
+        self.result = self._db.set_due_date(self._todo_id, self._due)
+
+    def undo(self) -> None:  # pragma: no cover - Feature #9 seam (no public undo yet)
+        # Clean inverse (unlike _DeleteCommand's new-id problem): set_due_date is
+        # value-based, so restoring the previous date is trivial for Feature #9.
+        self._db.set_due_date(self._todo_id, self._prev)
+
+
 # --------------------------------------------------------------------------- #
 # Controller
 # --------------------------------------------------------------------------- #
@@ -221,6 +258,15 @@ class TodoController:
     def cycle_priority(self, todo_id: int) -> Todo:
         """Cycle priority none→low→medium→high→none and return the updated todo."""
         command = _CyclePriorityCommand(self._db, todo_id)
+        self._apply(command)
+        assert command.result is not None
+        return command.result
+
+    # -- due date (Feature #7) ---------------------------------------------- #
+
+    def set_due_date(self, todo_id: int, due: date | None) -> Todo:
+        """Set (or clear, with ``due=None``) a todo's due date and return it."""
+        command = _SetDueDateCommand(self._db, todo_id, due)
         self._apply(command)
         assert command.result is not None
         return command.result

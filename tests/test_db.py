@@ -4,7 +4,7 @@ All tests run against an in-memory or tmp-path database — never the dev DB.
 """
 
 from dataclasses import replace
-from datetime import datetime
+from datetime import date, datetime
 
 import pytest
 
@@ -151,9 +151,14 @@ def len_migrations() -> int:
 # --------------------------------------------------------------------------- #
 
 
-def test_fresh_db_schema_version_is_2(db):
-    """A newly opened DB applies all migrations and reaches version 2."""
-    assert db.schema_version == 2
+def test_fresh_db_schema_version_is_latest(db):
+    """A newly opened DB applies all migrations and reaches the latest version.
+
+    Migration 0002 added priority (Feature #6); 0003 added due_date (Feature #7),
+    so the current latest is 3. Pinned to ``len_migrations()`` so it tracks the
+    ladder rather than a magic number that each new column feature must chase.
+    """
+    assert db.schema_version == len_migrations() == 3
 
 
 def test_v1_db_migrates_to_v2_preserving_data(tmp_path, monkeypatch):
@@ -169,14 +174,16 @@ def test_v1_db_migrates_to_v2_preserving_data(tmp_path, monkeypatch):
         v1.add(Todo.new("old task"))
     # user_version is 1 after closing
 
-    # Restore full migration list; reopening should run only 0002
+    # Restore full migration list; reopening runs the pending additive steps
+    # (0002 priority + 0003 due_date) forward, preserving the v1 row.
     monkeypatch.setattr(db_module, "_MIGRATIONS", all_migrations)
-    with Database(path) as v2:
-        assert v2.schema_version == 2
-        todos = v2.list_todos()
+    with Database(path) as migrated:
+        assert migrated.schema_version == len(all_migrations)
+        todos = migrated.list_todos()
         assert len(todos) == 1
         assert todos[0].text == "old task"
         assert todos[0].priority is None  # NULL → None from additive migration
+        assert todos[0].due_date is None
 
 
 # --------------------------------------------------------------------------- #
@@ -234,7 +241,7 @@ def test_priority_survives_file_reopen_without_remigrating(tmp_path):
     with Database(path) as second:
         fetched = second.get(saved.id)
         assert fetched.priority is Priority.HIGH
-        assert second.schema_version == 2  # 0002 not re-run
+        assert second.schema_version == len_migrations()  # additive steps not re-run
 
 
 def test_set_priority_returns_todo(db):
@@ -337,3 +344,164 @@ def test_update_leaves_priority_untouched(db):
     edited = db.update(replace(refreshed, text="renamed"))
     assert edited.priority is Priority.HIGH
     assert db.get(saved.id).priority is Priority.HIGH
+
+
+# --------------------------------------------------------------------------- #
+# Migration 0003 — adds due_date column (Feature #7)
+# --------------------------------------------------------------------------- #
+
+
+def test_fresh_db_has_due_date_column(db):
+    """The due_date column exists after migration 0003 (queryable, defaults NULL)."""
+    saved = db.add(Todo.new("task"))
+    assert db.get(saved.id).due_date is None
+
+
+def test_v2_db_migrates_to_v3_preserving_data(tmp_path, monkeypatch):
+    """A path-based v2 database is migrated to v3; existing rows keep due_date=NULL."""
+    import tasque.db as db_module
+
+    all_migrations = list(db_module._MIGRATIONS)
+    path = tmp_path / "v2.db"
+
+    # Create a v2-only database (0001 + 0002, no due_date column yet).
+    monkeypatch.setattr(db_module, "_MIGRATIONS", all_migrations[:2])
+    with Database(path) as v2:
+        v2.add(Todo.new("old task"))
+        assert v2.schema_version == 2
+
+    # Restore full list; reopening runs only 0003 and reaches version 3.
+    monkeypatch.setattr(db_module, "_MIGRATIONS", all_migrations)
+    with Database(path) as v3:
+        assert v3.schema_version == 3
+        todos = v3.list_todos()
+        assert len(todos) == 1
+        assert todos[0].text == "old task"
+        assert todos[0].due_date is None  # NULL → None from additive migration
+
+
+# --------------------------------------------------------------------------- #
+# set_due_date (Feature #7)
+# --------------------------------------------------------------------------- #
+
+
+def test_set_due_date_persists_a_date(db):
+    saved = db.add(Todo.new("task"))
+    updated = db.set_due_date(saved.id, date(2026, 7, 10))
+    assert updated.due_date == date(2026, 7, 10)
+    assert db.get(saved.id).due_date == date(2026, 7, 10)
+
+
+def test_set_due_date_clears_to_none(db):
+    saved = db.add(Todo.new("task"))
+    db.set_due_date(saved.id, date(2026, 7, 10))
+    updated = db.set_due_date(saved.id, None)
+    assert updated.due_date is None
+    assert db.get(saved.id).due_date is None
+
+
+def test_set_due_date_stores_iso_string_in_the_column(db):
+    """The raw column holds the ISO text — the storage-format decision (feature-7 §2a)."""
+    saved = db.add(Todo.new("task"))
+    db.set_due_date(saved.id, date(2026, 7, 10))
+    raw = db._conn.execute("SELECT due_date FROM todos WHERE id = ?", (saved.id,)).fetchone()[0]
+    assert raw == "2026-07-10"
+
+
+def test_set_due_date_raises_for_missing_id(db):
+    with pytest.raises(TodoNotFoundError):
+        db.set_due_date(999, date(2026, 7, 10))
+
+
+def test_set_due_date_returns_todo(db):
+    saved = db.add(Todo.new("task"))
+    result = db.set_due_date(saved.id, date(2026, 7, 10))
+    assert isinstance(result, Todo)
+    assert result.id == saved.id
+
+
+def test_due_date_survives_file_reopen(tmp_path):
+    """A due date written to disk survives a close/reopen through _row_to_todo,
+    and reopening a v3 DB does not re-run migration 0003.
+
+    If 0003 (``ALTER TABLE ... ADD COLUMN due_date``) ran a second time it would
+    raise a duplicate-column MigrationError; the reopen succeeding and the schema
+    version staying at the ladder length pins 0003 as idempotent on reopen.
+    """
+    path = tmp_path / "tasque.db"
+    with Database(path) as first:
+        saved = first.add(Todo.new("deadline"))
+        first.set_due_date(saved.id, date(2026, 12, 1))
+
+    with Database(path) as second:
+        fetched = second.get(saved.id)
+        assert fetched.due_date == date(2026, 12, 1)
+        assert second.schema_version == len_migrations()  # 0003 not re-applied
+
+
+def test_update_leaves_due_date_untouched(db):
+    """db.update() (text edit) must not clobber or clear the due date (feature-7 §5b)."""
+    saved = db.add(Todo.new("task"))
+    db.set_due_date(saved.id, date(2026, 7, 10))
+
+    refreshed = db.get(saved.id)
+    edited = db.update(replace(refreshed, text="renamed"))
+    assert edited.due_date == date(2026, 7, 10)
+    assert db.get(saved.id).due_date == date(2026, 7, 10)
+
+
+# --------------------------------------------------------------------------- #
+# list_todos with DUE sort (Feature #7)
+# --------------------------------------------------------------------------- #
+
+
+def test_list_todos_due_sort_earliest_first(db):
+    later = db.add(Todo.new("later"))
+    db.set_due_date(later.id, date(2026, 8, 1))
+    sooner = db.add(Todo.new("sooner"))
+    db.set_due_date(sooner.id, date(2026, 7, 5))
+
+    ids = [t.id for t in db.list_todos(sort=TodoSort.DUE)]
+    assert ids == [sooner.id, later.id]
+
+
+def test_list_todos_due_sort_null_last(db):
+    no_due = db.add(Todo.new("no due"))
+    dated = db.add(Todo.new("dated"))
+    db.set_due_date(dated.id, date(2026, 7, 5))
+
+    ids = [t.id for t in db.list_todos(sort=TodoSort.DUE)]
+    assert ids.index(dated.id) < ids.index(no_due.id)
+
+
+def test_list_todos_due_sort_id_tiebreak(db):
+    """Two tasks due the same day keep creation order (id ASC tie-break)."""
+    first = db.add(Todo.new("first"))
+    db.set_due_date(first.id, date(2026, 7, 5))
+    second = db.add(Todo.new("second"))
+    db.set_due_date(second.id, date(2026, 7, 5))
+
+    ids = [t.id for t in db.list_todos(sort=TodoSort.DUE)]
+    assert ids.index(first.id) < ids.index(second.id)
+
+
+def test_list_todos_due_sort_done_demoted_below_active(db):
+    """A completed task sits below active work however soon it was due."""
+    done_soon = db.add(Todo.new("done soon"))
+    db.set_due_date(done_soon.id, date(2026, 7, 1))
+    db.set_completed(done_soon.id, True)
+
+    active_no_due = db.add(Todo.new("active no due"))
+
+    ids = [t.id for t in db.list_todos(sort=TodoSort.DUE)]
+    assert ids.index(active_no_due.id) < ids.index(done_soon.id)
+
+
+def test_list_todos_due_sort_does_not_disturb_other_sorts(db):
+    """DUE sort is additive — CREATED and PRIORITY still behave as before."""
+    a = db.add(Todo.new("a"))
+    b = db.add(Todo.new("b"))
+    db.set_due_date(a.id, date(2027, 1, 1))
+    db.set_due_date(b.id, date(2026, 1, 1))
+    # CREATED keeps insertion order regardless of due dates.
+    assert [t.id for t in db.list_todos(sort=TodoSort.CREATED)] == [a.id, b.id]

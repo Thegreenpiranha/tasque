@@ -112,13 +112,7 @@ binding, `action_cycle_sort`, `on_todo_list_priority_cycle_requested`, sort-awar
 `main.py`; low-priority colour `$primary→$text-muted`, done-priority dim rule in `tasque.tcss`.
 216 tests, 99% coverage, ruff clean. Awaits tester + reviewer passes.
 
-## Backlog
-
-Ordered by dependency. Pick the topmost item whose dependencies are all Done.
-
----
-
-### Feature #7 — Due Dates
+### 🚧 Feature #7 — Due Dates — _design complete 2026-07-03_
 
 **Goal:** Attach due dates to tasks and highlight overdue ones.
 
@@ -130,6 +124,61 @@ Ordered by dependency. Pick the topmost item whose dependencies are all Done.
 - Tests cover set/clear, overdue detection (with a fixed "now"), and sort.
 
 **Depends on:** Feature #5
+
+**Architecture:** `docs/architecture/feature-7.md` (architect pass complete). Key decisions:
+`due_date` stays the shipped `date | None` (a **calendar day**, not datetime/timestamp — no
+timezone; "overdue" = `due_date < date.today()` in local civil time); stored as **ISO 8601 text**
+(the shipped `_row_to_todo` already parses it via `date.fromisoformat`); additive migration
+`user_version` 2 → 3 (`ALTER TABLE todos ADD COLUMN due_date TEXT`); a pure `due_state(due, today)`
+classifier in `models.py` (clock-injected, testable with a fixed now); write via a dedicated
+`db.set_due_date` (third of the `set_completed`/`set_priority` family — `update()` left untouched)
+through a new `_SetDueDateCommand` on the `_apply` seam; **input flow reuses the docked `InputBar`**
+in a new `"due"` mode (a row-scoped key opens it pre-filled; type a date to set, blank to clear —
+parse grammar ISO + `today`/`tomorrow`/`+N` in `models.parse_due_date`); rendering activates the
+reserved `#due`/`#meta` slot + `.-overdue`/`.-due-today` CSS (**already in `tasque.tcss` — no CSS
+change**), with completion gating that structurally avoids the priority done-dim source-order trap;
+`TodoSort.DUE` added to the three-way `s` sort cycle (`ORDER BY completed ASC, due_date ASC NULLS
+LAST, id ASC`, border-title `· by due`), toggle-handler branch generalised from `is PRIORITY` to
+`is not CREATED`.
+
+**Decisions resolved with the user (2026-07-03):** (1) due-edit key = **`D`** (Shift+D, sibling of
+`d` Delete); (2) **`TodoSort.DUE` sort ships in #7; real filtering deferred to #11** as a unified
+priority/due/category filter (constraint recorded on #11's entry). (3) parse-grammar breadth and (4)
+display strings are handed to the **researcher** (`docs/ux/due-dates.md`), not open architect
+questions. No architect questions remain.
+
+**Researcher pass complete (2026-07-04):** `docs/ux/due-dates.md` written. Q3 → confirm the small
+grammar (ISO + `today`/`tomorrow`/`+N`; NL/weekday forms deferred at zero-UX-cost), placeholder
+`YYYY-MM-DD, today, tomorrow, +3`, a two-state **Set/Clear** footer swap for blank-to-clear
+discoverability, invalid-parse hint. Q4 → confirm `OVERDUE MM-DD` / `due today` / `MM-DD` / `──`,
+**future stays absolute**, and a **year rule** (`MM-DD` in the current year, full `YYYY-MM-DD`
+otherwise) — resolves `main-screen.md` Open Question #4. Two refinements reconciled back into
+`feature-7.md`: §7b footer Set/Clear swap (+`on_input_changed` refresh) and §8 `_due_display`/
+`_due_word` threading `today` for the year rule. **Ready for the implementer** (architecture + UX
+spec both landed; no open questions).
+
+**Implementation complete (2026-07-04):** `DueState` + `DueDateParseError` + pure `due_state`/
+`parse_due_date` + `TodoSort.DUE` in `models.py`; migration `0003` adds nullable `due_date TEXT`
+(`user_version` 2→3), `set_due_date` twin of `set_priority`, `list_todos(sort=DUE)` ORDER BY in
+`db.py`; `set_due_date` via `_SetDueDateCommand` through `_apply` + `parse_due_date`/`DueDateParseError`
+re-exported in `controller.py`; `#due` slot rendered from `_due_display`/`_fmt_due` (year rule),
+`-overdue`/`-due-today` set in `_sync_classes` gated on completion, `_due_word` folded into the
+accessible label in `todo_item.py`; new `"due"` mode (`open_due`, Set/Clear footer swap,
+`flash_invalid`, `on_input_changed`) in `input_bar.py`; `D` binding + `DueDateEditRequested` +
+`action_edit_due` in `todo_list.py`; `on_todo_list_due_date_edit_requested`, `_handle_set_due`,
+three-way `s` sort cycle, generalised demote-done toggle branch, `· by due` border-title suffix in
+`main.py`; no `tasque.tcss` change (`.-overdue`/`.-due-today`/`.-done > #meta` already shipped).
+**Tester pass complete** — `len_migrations()`-pinned migration tests, computed-colour escalation
+cross-reference (`$error` vs `$warning`), parse-grammar boundary cases (month/year rollover, leap
+day). **Reviewer pass complete; findings folded in (2026-07-07):** [W1] inline parse-failure hint
+(`Can't read that date — try YYYY-MM-DD, today, +3`) in the InputBar border subtitle + tests; [W2]
+this note; [S1] the `(!)` overdue-urgency echo retired and reconciled across `due-dates.md`
+§Reconciliation, `main-screen.md`, and `priority.md` (shape-family argument re-anchored on the
+bracketed checkbox). 314 tests, 99% coverage (all modules ≥80%), ruff clean.
+
+## Backlog
+
+Ordered by dependency. Pick the topmost item whose dependencies are all Done.
 
 ---
 
@@ -188,6 +237,12 @@ Ordered by dependency. Pick the topmost item whose dependencies are all Done.
 - Tests cover text search, attribute filters, and cross-list results.
 
 **Depends on:** Feature #10
+
+**Notes:** Unified attribute **filtering** (by priority / due / category) is consolidated here.
+Per Feature #7's decision (2026-07-03), #7 ships *sort* by due but defers real *filtering* to a
+single cross-attribute feature so filters aren't scattered per-attribute into #6/#7/#8. So #11 owns
+filter-by-due alongside filter-by-priority and filter-by-category — the constraint travels with this
+entry.
 
 ---
 

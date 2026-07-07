@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal
@@ -10,7 +11,7 @@ from textual.css.query import NoMatches
 from textual.reactive import reactive
 from textual.widgets import ListItem, Static
 
-from tasque.models import Priority, Todo
+from tasque.models import DueState, Priority, Todo, due_state
 
 # Maps used for rendering the #priority slot and setting the accessible label.
 _PRIORITY_TAGS: dict[Priority, str] = {
@@ -38,6 +39,47 @@ def _priority_tag(priority: Priority | None) -> str:
     return _PRIORITY_TAGS.get(priority, "    ")  # type: ignore[arg-type]
 
 
+def _fmt_due(due: date, today: date) -> str:
+    """Format a due date for the slot: MM-DD in the current year, else full ISO.
+
+    The year rule (due-dates.md Q4): the common case stays compact (``06-30``)
+    while a date in another year is unambiguous (``2027-01-15``).
+    """
+    return due.strftime("%m-%d") if due.year == today.year else due.isoformat()
+
+
+def _due_display(due: date | None, state: DueState, completed: bool, today: date) -> str:
+    """The string for the reserved ``#due`` slot (due-dates.md Q4).
+
+    Blank for none; ``──`` for a completed row (escalation is moot); ``OVERDUE
+    <date>`` / ``due today`` for active escalated rows; a bare date for future.
+    """
+    if due is None:
+        return ""  # blank slot — no due date
+    if completed:
+        return "──"  # done rows show no stale escalation
+    if state is DueState.OVERDUE:
+        return f"OVERDUE {_fmt_due(due, today)}"
+    if state is DueState.TODAY:
+        return "due today"
+    return _fmt_due(due, today)  # future
+
+
+def _due_word(due: date | None, state: DueState, completed: bool) -> str | None:
+    """The spoken due phrase for the accessible label, or ``None`` to omit it.
+
+    Future uses the full ISO date (``due 2026-06-30``) for unambiguous read-aloud
+    (due-dates.md Q4/§Accessibility); none and completed contribute nothing.
+    """
+    if due is None or completed:
+        return None
+    if state is DueState.OVERDUE:
+        return "overdue"
+    if state is DueState.TODAY:
+        return "due today"
+    return f"due {due.isoformat()}"
+
+
 class TodoItem(ListItem):
     """One task row inside :class:`~tasque.widgets.todo_list.TodoList`.
 
@@ -47,8 +89,8 @@ class TodoItem(ListItem):
         └┬┘ └┬┘ └┬┘                               └──── #meta ──┘
         gutter checkbox priority  title (1fr)
 
-    Slots ``#priority``, ``#due``, and ``#category`` are reserved and empty
-    until Feature #6 / #7 / #8 activate them.
+    Slots ``#priority`` (#6) and ``#due`` (#7) are active; ``#category`` stays
+    reserved and empty until Feature #8 activates it.
 
     CSS classes toggled from reactive state:
     - ``-done`` — todo is completed (checkbox ``[x]``, title dimmed+strike)
@@ -92,9 +134,14 @@ class TodoItem(ListItem):
     def watch_todo(self, new_todo: Todo | None) -> None:
         if new_todo is None:
             return
+        today = date.today()
+        state = due_state(new_todo.due_date, today)
         self.query_one("#checkbox", Static).update("[x]" if new_todo.completed else "[ ]")
         self.query_one("#priority", Static).update(_priority_tag(new_todo.priority))
         self.query_one("#title", Static).update(new_todo.text)
+        self.query_one("#due", Static).update(
+            _due_display(new_todo.due_date, state, new_todo.completed, today)
+        )
         self._sync_classes(new_todo)
 
     def watch_highlighted(self, value: bool) -> None:
@@ -115,8 +162,13 @@ class TodoItem(ListItem):
         cls = _PRIORITY_CLASS.get(todo.priority)  # type: ignore[arg-type]
         if cls:
             self.add_class(cls)
-        # Feature #7 seam — never set here.
-        self.remove_class("-overdue", "-due-today")
+        # Due-date escalation, gated on completion: a done row never carries
+        # -overdue / -due-today, so those classes can never co-occur with -done
+        # and there is no CSS source-order tie to break (feature-7.md §3 / §8,
+        # contrast the priority done-dim, LEARNINGS 2026-07-03).
+        state = due_state(todo.due_date, date.today())
+        self.set_class(not todo.completed and state is DueState.OVERDUE, "-overdue")
+        self.set_class(not todo.completed and state is DueState.TODAY, "-due-today")
 
     # -- accessibility ------------------------------------------------------ #
 
@@ -139,6 +191,11 @@ class TodoItem(ListItem):
         if priority_word is not None:
             parts.append(priority_word)
         parts.append(todo.text)
+        # Due folds in AFTER the text — order is completion, priority, text, due
+        # (main-screen.md § Screen reader / due-dates.md Q5).
+        due_word = _due_word(todo.due_date, due_state(todo.due_date, date.today()), todo.completed)
+        if due_word is not None:
+            parts.append(due_word)
         return ", ".join(parts)
 
     # -- public API --------------------------------------------------------- #

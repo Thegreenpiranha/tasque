@@ -272,3 +272,45 @@ guard: invert the rule order, confirm the test fails (done `#priority` resolves 
 `Color(185, 60, 91)` = `$error`, equal to the active tag), then restore. Reach for a computed-colour
 test whenever correctness rides on CSS specificity/source-order rather than on which classes are
 present. Added `test_done_high_priority_tag_dims_instead_of_error_colour` in `tests/screens/test_main.py`.
+
+### 2026-07-04 — [testing] Migration tests must pin to `len_migrations()`, not an absolute version number
+
+Feature #7's migration `0003` (add `due_date`) bumped the latest `user_version` 2 → 3 and broke three
+Feature #6 tests that had hard-coded `schema_version == 2` (`test_fresh_db_schema_version_is_2`,
+`test_v1_db_migrates_to_v2_preserving_data`, `test_priority_survives_file_reopen_without_remigrating`).
+The failure is *correct signal* — the schema genuinely advanced — but the assertions were brittle by
+construction: any new additive-column feature (#8 category, #10 list) will trip the same wire again.
+Fix: assert against `len_migrations()` (the ladder length) rather than a magic integer, so "fully
+migrated" tracks the ladder automatically. The one already-robust test, `test_fresh_db_is_migrated`
+(`schema_version == len_migrations()`), needed no edit — that is the pattern to copy. **Rule for the
+next column feature:** when you append a migration, expect the absolute-number migration tests to fail,
+and re-point them at `len_migrations()` instead of chasing the number. Also note the v1→v-latest
+preservation test now exercises *two* pending steps (0002 + 0003) on reopen, confirming the ladder
+`_MIGRATIONS[version:]` runs each pending step in order and preserves the pre-existing row's data
+(both `priority` and `due_date` come back `None`).
+
+### 2026-07-04 — [testing] Setting `Input.value` in a pilot fires `Input.Changed` — enough to drive the due footer swap
+
+The due-mode footer's `Set due`↔`Clear due` label swap is driven by `on_input_changed` →
+`refresh_bindings()` (the field-emptiness re-read in `check_action`). A test can exercise it *without*
+simulating keystrokes: assigning `input.value = ""` programmatically posts `Input.Changed`, so a
+single `await pilot.pause()` after the assignment is enough for the footer to flip (see
+`test_footer_due_mode_swaps_to_clear_due_when_empty`). This is why `check_action` reads the *live*
+field value through a `_field_is_empty()` helper rather than caching an "is empty" flag — the reactive
+Changed event is the single source of truth and the label can never drift from the field. (The helper
+guards `query_one("#bar-input")` with `except NoMatches: return True`, the same defensive shape as
+`TodoItem.watch_highlighted`, in case Textual queries bindings before the bar's `Input` composes.)
+
+### 2026-07-07 — [ux] The InputBar's free-text parse hint lives in the border subtitle, not the Footer
+
+The due parse-failure hint (`Can't read that date — try YYYY-MM-DD, today, +3`, `due-dates.md` Q3)
+looks like a footer concern, but Textual's `Footer` renders **binding `key → description` pairs**, not
+arbitrary text — so a free-text error message can't ride the same `check_action`/`refresh_bindings`
+swap the `Set due`/`Clear due` *labels* use. It goes in `InputBar.border_subtitle` instead: no layout
+jump (unlike a second `Static` line, which would grow the `height:auto` bar and regress the idle
+visuals), and during the `-invalid` pulse the border is already `$error`, so the subtitle text renders
+in the alarm colour — words **and** hue, satisfying the colour-blind rule the empty-add pulse (hue
+only) doesn't. Keep the two invalid paths distinct: `flash_invalid()` (the *screen*-detected parse
+failure) sets the subtitle then pulses; `_pulse_invalid()` (empty add/edit) pulses **without** a
+subtitle. The shared 0.6 s timer clears both via `_clear_invalid`, and `watch_mode` wipes any stale
+subtitle on the next open (`mode` is `always_update=True`, so it fires even on a same-mode reopen).

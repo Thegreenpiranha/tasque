@@ -1,11 +1,20 @@
-"""Unit tests for the Todo domain model (Features #2, #6)."""
+"""Unit tests for the Todo domain model (Features #2, #6, #7)."""
 
 from dataclasses import FrozenInstanceError, replace
 from datetime import date, datetime
 
 import pytest
 
-from tasque.models import Priority, Todo, next_priority
+from tasque.models import (
+    DueDateParseError,
+    DueState,
+    Priority,
+    Todo,
+    TodoSort,
+    due_state,
+    next_priority,
+    parse_due_date,
+)
 
 
 def test_new_todo_defaults():
@@ -111,3 +120,122 @@ def test_next_priority_is_pure_no_side_effects():
     next_priority(Priority.HIGH)
     next_priority(None)
     assert next_priority(Priority.LOW) is Priority.MEDIUM
+
+
+# --------------------------------------------------------------------------- #
+# due_state — overdue classification with a fixed "now" (Feature #7)
+# --------------------------------------------------------------------------- #
+
+_TODAY = date(2026, 7, 4)
+
+
+def test_due_state_none_when_no_due_date():
+    assert due_state(None, _TODAY) is DueState.NONE
+
+
+def test_due_state_overdue_when_strictly_before_today():
+    assert due_state(date(2026, 7, 3), _TODAY) is DueState.OVERDUE
+    assert due_state(date(2025, 1, 1), _TODAY) is DueState.OVERDUE
+
+
+def test_due_state_today_is_today_not_overdue():
+    """The current civil day is 'due today', never overdue (boundary precision)."""
+    assert due_state(_TODAY, _TODAY) is DueState.TODAY
+
+
+def test_due_state_future_when_after_today():
+    assert due_state(date(2026, 7, 5), _TODAY) is DueState.FUTURE
+    assert due_state(date(2027, 1, 1), _TODAY) is DueState.FUTURE
+
+
+def test_due_state_is_pure_and_completion_agnostic():
+    """Completion is not an input — the widget gates escalation, not the classifier."""
+    assert due_state(date(2026, 7, 3), _TODAY) is DueState.OVERDUE
+    # Same call again yields the same answer — no hidden state.
+    assert due_state(date(2026, 7, 3), _TODAY) is DueState.OVERDUE
+
+
+# --------------------------------------------------------------------------- #
+# parse_due_date — small grammar, fixed-today testable (Feature #7)
+# --------------------------------------------------------------------------- #
+
+
+def test_parse_due_date_iso_round_trips():
+    assert parse_due_date("2026-07-10", today=_TODAY) == date(2026, 7, 10)
+
+
+def test_parse_due_date_iso_ignores_surrounding_whitespace():
+    assert parse_due_date("  2026-07-10  ", today=_TODAY) == date(2026, 7, 10)
+
+
+def test_parse_due_date_today_anchor():
+    assert parse_due_date("today", today=_TODAY) == _TODAY
+
+
+def test_parse_due_date_tomorrow_anchor():
+    assert parse_due_date("tomorrow", today=_TODAY) == date(2026, 7, 5)
+
+
+def test_parse_due_date_is_case_insensitive():
+    assert parse_due_date("ToDaY", today=_TODAY) == _TODAY
+    assert parse_due_date("TOMORROW", today=_TODAY) == date(2026, 7, 5)
+
+
+def test_parse_due_date_relative_plus_n():
+    assert parse_due_date("+3", today=_TODAY) == date(2026, 7, 7)
+    assert parse_due_date("+0", today=_TODAY) == _TODAY
+
+
+@pytest.mark.parametrize("junk", ["soon", "next fri", "2026-13-40", "+", "+3d", "", "tues"])
+def test_parse_due_date_rejects_junk(junk):
+    with pytest.raises(DueDateParseError):
+        parse_due_date(junk, today=_TODAY)
+
+
+# --- boundary arithmetic: month/year rollover and leap years --------------- #
+# The relative forms lean on timedelta (which rolls months/years correctly) and
+# the ISO form leans on date.fromisoformat (which validates real calendar days).
+# These pin that contract at the edges where off-by-one/rollover bugs hide.
+
+
+def test_parse_due_date_tomorrow_rolls_over_month_end():
+    """Jan 31 + 1 day is Feb 1, not an invalid Jan 32 (timedelta rollover)."""
+    assert parse_due_date("tomorrow", today=date(2026, 1, 31)) == date(2026, 2, 1)
+
+
+def test_parse_due_date_plus_n_crosses_month_boundary():
+    assert parse_due_date("+5", today=date(2026, 1, 30)) == date(2026, 2, 4)
+
+
+def test_parse_due_date_plus_n_crosses_year_boundary():
+    assert parse_due_date("+2", today=date(2026, 12, 31)) == date(2027, 1, 2)
+
+
+def test_parse_due_date_accepts_leap_day_in_a_leap_year():
+    assert parse_due_date("2024-02-29", today=_TODAY) == date(2024, 2, 29)
+
+
+def test_parse_due_date_rejects_leap_day_in_a_non_leap_year():
+    """2025 is not a leap year, so Feb 29 is not a real date — reject it."""
+    with pytest.raises(DueDateParseError):
+        parse_due_date("2025-02-29", today=_TODAY)
+
+
+def test_parse_due_date_plus_n_lands_on_leap_day():
+    """Feb 28 2024 + 1 day is Feb 29 (leap year), not Mar 1."""
+    assert parse_due_date("+1", today=date(2024, 2, 28)) == date(2024, 2, 29)
+
+
+def test_due_date_parse_error_is_a_value_error_not_tasque_error():
+    """Parse failures are input validation (ValueError), never persistence errors."""
+    assert issubclass(DueDateParseError, ValueError)
+
+
+# --------------------------------------------------------------------------- #
+# TodoSort.DUE (Feature #7)
+# --------------------------------------------------------------------------- #
+
+
+def test_todo_sort_has_due_member():
+    assert TodoSort.DUE.value == "due"
+    assert TodoSort.DUE in TodoSort
