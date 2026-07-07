@@ -300,3 +300,17 @@ field value through a `_field_is_empty()` helper rather than caching an "is empt
 Changed event is the single source of truth and the label can never drift from the field. (The helper
 guards `query_one("#bar-input")` with `except NoMatches: return True`, the same defensive shape as
 `TodoItem.watch_highlighted`, in case Textual queries bindings before the bar's `Input` composes.)
+
+### 2026-07-07 — [ux] The InputBar's free-text parse hint lives in the border subtitle, not the Footer
+
+The due parse-failure hint (`Can't read that date — try YYYY-MM-DD, today, +3`, `due-dates.md` Q3)
+looks like a footer concern, but Textual's `Footer` renders **binding `key → description` pairs**, not
+arbitrary text — so a free-text error message can't ride the same `check_action`/`refresh_bindings`
+swap the `Set due`/`Clear due` *labels* use. It goes in `InputBar.border_subtitle` instead: no layout
+jump (unlike a second `Static` line, which would grow the `height:auto` bar and regress the idle
+visuals), and during the `-invalid` pulse the border is already `$error`, so the subtitle text renders
+in the alarm colour — words **and** hue, satisfying the colour-blind rule the empty-add pulse (hue
+only) doesn't. Keep the two invalid paths distinct: `flash_invalid()` (the *screen*-detected parse
+failure) sets the subtitle then pulses; `_pulse_invalid()` (empty add/edit) pulses **without** a
+subtitle. The shared 0.6 s timer clears both via `_clear_invalid`, and `watch_mode` wipes any stale
+subtitle on the next open (`mode` is `always_update=True`, so it fires even on a same-mode reopen).

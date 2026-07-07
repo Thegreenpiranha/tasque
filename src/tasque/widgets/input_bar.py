@@ -33,6 +33,9 @@ logger = logging.getLogger("tasque.widgets.input_bar")
 
 _ADD_PLACEHOLDER = "Add a task and press Enter…"
 _DUE_PLACEHOLDER = "YYYY-MM-DD, today, tomorrow, +3"
+# Shown in the border subtitle on a due parse failure (due-dates.md Q3), so the
+# feedback is carried by words + the pulse, never the border hue alone.
+_INVALID_DUE_HINT = "Can't read that date — try YYYY-MM-DD, today, +3"
 
 
 class InputBar(Widget):
@@ -170,11 +173,14 @@ class InputBar(Widget):
         self.refresh_bindings()  # footer → "Esc Done"
 
     def flash_invalid(self) -> None:
-        """Pulse the bar ``-invalid`` (~600ms) and keep it open, input intact.
+        """Pulse the bar ``-invalid`` (~600ms), show the parse hint, keep it open.
 
         Public wrapper over the internal pulse so the screen can signal a *parse*
-        failure it detects (which the bar can't), reusing the empty-add feedback.
+        failure it detects (which the bar can't). Unlike the empty-add pulse it
+        also surfaces the inline hint in the border subtitle (due-dates.md Q3) so
+        the feedback is carried by words, not the border hue alone.
         """
+        self.border_subtitle = _INVALID_DUE_HINT
         self._pulse_invalid()
 
     def close(self) -> None:
@@ -184,6 +190,9 @@ class InputBar(Widget):
     # -- reactive watchers -------------------------------------------------- #
 
     def watch_mode(self, mode: str) -> None:
+        # A fresh open (mode is always_update) clears any lingering parse hint
+        # from a prior due session so it never carries into the next.
+        self.border_subtitle = None
         if mode == "edit":
             self.border_title = "Edit task"
         elif mode == "due":
@@ -290,4 +299,9 @@ class InputBar(Widget):
 
     def _pulse_invalid(self) -> None:
         self.add_class("-invalid")
-        self.set_timer(0.6, lambda: self.remove_class("-invalid"))
+        self.set_timer(0.6, self._clear_invalid)
+
+    def _clear_invalid(self) -> None:
+        """End the pulse: drop the ``-invalid`` class and any inline parse hint."""
+        self.remove_class("-invalid")
+        self.border_subtitle = None

@@ -30,7 +30,7 @@ Full main screen. Three stacked regions: **Header** (top, 1 row), **List panel**
 ├─ Inbox · 3 active · 1 done ────────────────────────────────────────────────┤  ← List panel border title (active list + counts)
 │ ▸ [ ] (H) Finish the quarterly report               #work        due today   │  ← cursor row (highlighted)
 │   [ ] (M) Buy groceries                              #home        06-30       │
-│   [ ] (!) Renew passport                             #admin       OVERDUE 06-20│  ← overdue (escalated)
+│   [ ]     Renew passport                             #admin       OVERDUE 06-20│  ← overdue (escalated; blank priority — the (!) echo is retired by #7)
 │   [x] (L) Water the plants                           #home        ──          │  ← done (dimmed + strike)
 │   [ ]     Read Textual docs                                                   │  ← no priority, no category, no due
 │                                                                              │
@@ -59,7 +59,7 @@ cursor│   │            title (1fr, ellipsis on overflow)            due (rig
 | --- | --- | --- | --- |
 | Cursor gutter | 2 | `▸ ` on the highlighted row, blank otherwise | #4 (via ListView highlight) |
 | Checkbox | 4 | `[ ]` open / `[x]` done | #4 |
-| Priority tag | 4 | `(H)`/`(M)`/`(L)`/`(!)`, or blank for none | #6 |
+| Priority tag | 4 | `(H)`/`(M)`/`(L)`, or blank for none (the `(!)` overdue echo is retired by #7) | #6 |
 | Title | `1fr` | task text; truncate with `…` when narrow | #4 |
 | Category tag | auto | `#name`, right-grouped, dim | **#8 — reserve space, do not build now** |
 | Due | auto (~10) | relative/abs date, right-aligned | **#7 — reserve space, do not build now** |
@@ -123,7 +123,7 @@ Declared as Textual theme tokens in `tasque.tcss` so dark/light themes both work
 | Priority high | `$error` | red | red | text tag `(H)` |
 | Priority medium | `$warning` | amber/yellow | amber | text tag `(M)` |
 | Priority low | `$text-muted` | dim grey | dim grey | text tag `(L)` |
-| Overdue | `$error` bold | red | red | word `OVERDUE` + `(!)` priority echo |
+| Overdue | `$error` bold | red | red | word `OVERDUE` (the `(!)` priority echo is retired by #7 — see `due-dates.md`) |
 | Due today | `$warning` | amber | amber | words `due today` |
 | Success / confirmation toast | `$success` | green | green | toast text + `✓`/`Done:` label |
 | Error toast | `$error` | red | red | toast text + `Error:` label |
@@ -162,9 +162,9 @@ The normal case — rows as in the Layout wireframe. Newest-at-top or sort order
 
 ### Overdue item (#7 — reserved)
 ```
-   [ ] (!) Renew passport                                #admin    OVERDUE 06-20
+   [ ]     Renew passport                                #admin    OVERDUE 06-20
 ```
-- Due slot renders `OVERDUE <date>` in `$error` bold. The priority tag echoes urgency as `(!)` when no explicit priority is set but the task is overdue (taskwarrior "urgency" idea), or keeps its real `(H/M/L)` if set. Overdue never applies to a `-done` row.
+- Due slot renders `OVERDUE <date>` in `$error` bold. Overdue never applies to a `-done` row. **The `(!)` urgency echo shown here is retired by Feature #7** (`due-dates.md` §Reconciliation): the priority tag stays a pure priority signal (`(H)/(M)/(L)` or blank) and never doubles as a due cue — overdue is carried entirely by the word `OVERDUE` on the `#due` slot, so an unprioritised overdue task shows a blank priority slot.
 
 ### High-priority item (#6)
 ```
@@ -220,7 +220,7 @@ Footer order (mirrors the wireframe): `a Add · ␣ Toggle · e Edit · d Delete
 
 - **Keyboard-only path:** Launch → list has focus → `j`/`k` to the target → `Space` toggle / `e` edit / `d` delete / `p` priority / `a` add. Every function is reachable with no mouse. `Esc` always backs out of an edit/confirm/filter to the list.
 - **App-wide `Tab` convention (canonical — other specs defer to this):** `Tab` is *not* a primary navigation key in Tasque; the cursor (`j`/`k`) is. `Tab`/`Shift+Tab` cycles focus **only among the controls within the currently active surface**, and never moves focus out of that surface: in the delete-confirmation modal it moves between `Cancel` and `Delete`; in the single-field `InputBar` (add/edit) there is no second control, so `Tab` is **inert** (reserved for a future multi-field add — e.g. inline priority/due). Opening the `InputBar` moves focus to it and `Esc` (not `Tab`) returns focus to the list. This keeps `Tab` behaviour uniform: it stays inside the active surface, and where a surface has one control it does nothing.
-- **Color-blind safety:** every colored state is paired with a glyph/word — `[x]` (done), `(H)/(M)/(L)/(!)` (priority/urgency), `OVERDUE`/`due today` (dates), `▸` (cursor). The screen is fully usable with color disabled.
+- **Color-blind safety:** every colored state is paired with a glyph/word — `[x]` (done), `(H)/(M)/(L)` (priority; the `(!)` overdue echo is retired by #7), `OVERDUE`/`due today` (dates), `▸` (cursor). The screen is fully usable with color disabled.
 - **Monochrome / 16-color terminals:** all glyphs are ASCII (`[ ] [x] ( ) ▸ # …`); `▸` falls back to `>` if needed. On 16-color terminals Textual maps theme tokens to the nearest ANSI color; because meaning is carried by symbols, a token collapsing to a near color loses no information. Strikethrough/dim for done degrade to dim-only if strike is unsupported, still distinguishable by `[x]`.
 - **Screen reader / labels:** each `TodoItem` exposes a text label combining state into one readable string, e.g. `"incomplete, high priority, Finish the quarterly report, due today"` so a row is meaningful read aloud, not just visual glyphs. The list panel's border title (`Inbox · 3 active · 1 done`) gives orientation. The cursor row should be announced on `Highlighted`.
 - **Contrast:** lean on Textual theme tokens (designed for adequate contrast on both themes). The single pairing to verify when adding any custom theme is `$text` on the `$accent` focus fill — target ≥ 4.5:1.

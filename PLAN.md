@@ -157,6 +157,25 @@ otherwise) — resolves `main-screen.md` Open Question #4. Two refinements recon
 `_due_word` threading `today` for the year rule. **Ready for the implementer** (architecture + UX
 spec both landed; no open questions).
 
+**Implementation complete (2026-07-04):** `DueState` + `DueDateParseError` + pure `due_state`/
+`parse_due_date` + `TodoSort.DUE` in `models.py`; migration `0003` adds nullable `due_date TEXT`
+(`user_version` 2→3), `set_due_date` twin of `set_priority`, `list_todos(sort=DUE)` ORDER BY in
+`db.py`; `set_due_date` via `_SetDueDateCommand` through `_apply` + `parse_due_date`/`DueDateParseError`
+re-exported in `controller.py`; `#due` slot rendered from `_due_display`/`_fmt_due` (year rule),
+`-overdue`/`-due-today` set in `_sync_classes` gated on completion, `_due_word` folded into the
+accessible label in `todo_item.py`; new `"due"` mode (`open_due`, Set/Clear footer swap,
+`flash_invalid`, `on_input_changed`) in `input_bar.py`; `D` binding + `DueDateEditRequested` +
+`action_edit_due` in `todo_list.py`; `on_todo_list_due_date_edit_requested`, `_handle_set_due`,
+three-way `s` sort cycle, generalised demote-done toggle branch, `· by due` border-title suffix in
+`main.py`; no `tasque.tcss` change (`.-overdue`/`.-due-today`/`.-done > #meta` already shipped).
+**Tester pass complete** — `len_migrations()`-pinned migration tests, computed-colour escalation
+cross-reference (`$error` vs `$warning`), parse-grammar boundary cases (month/year rollover, leap
+day). **Reviewer pass complete; findings folded in (2026-07-07):** [W1] inline parse-failure hint
+(`Can't read that date — try YYYY-MM-DD, today, +3`) in the InputBar border subtitle + tests; [W2]
+this note; [S1] the `(!)` overdue-urgency echo retired and reconciled across `due-dates.md`
+§Reconciliation, `main-screen.md`, and `priority.md` (shape-family argument re-anchored on the
+bracketed checkbox). 314 tests, 99% coverage (all modules ≥80%), ruff clean.
+
 ## Backlog
 
 Ordered by dependency. Pick the topmost item whose dependencies are all Done.

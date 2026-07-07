@@ -352,3 +352,15 @@ TodoItem.-done      > #meta { color: $text-disabled; }             /* shipped #4
   the other-year full-ISO rule is new and does not contradict the wireframe (all its examples are current-year).
 - **`main-screen.md` Color Scheme table** already lists Overdue = `$error` bold and Due today = `$warning`; this
   spec confirms them unchanged — no table edit needed (unlike `priority.md`'s low-colour change).
+- **The `(!)` overdue-urgency echo is retired — this spec supersedes `main-screen.md` on it.** `main-screen.md`'s
+  reserved sketch (its wireframe, the §Overdue item prose, the Color Scheme "paired non-colour signal" column, and
+  the §Accessibility glyph list) showed the priority tag rendering `(!)` when an *unprioritised* task is overdue (a
+  taskwarrior "urgency" borrow). Feature #7 **does not adopt it**: overdue is carried entirely by the word `OVERDUE`
+  on the `#due` slot (Principle 1), the priority tag stays a pure priority signal (`(H)/(M)/(L)` or blank — see
+  `_priority_tag`), and the two attributes live in independent slots so a HIGH overdue row reads as urgency without
+  the tag doing double duty. Rationale: the `(!)` conflated *priority* and *due* into one glyph, was never in the
+  Q4 `#due` display table, and would need the priority renderer to know the due state — coupling the two attributes
+  the design deliberately keeps separate. `main-screen.md` has been updated to mark the `(!)` references as retired
+  by this spec (its reserved wireframe row for an overdue, unprioritised task now shows a **blank** priority slot),
+  and `priority.md`'s shape-family argument has been re-anchored on the bracketed checkbox `[ ]`/`[x]` rather than
+  the retired `(!)` echo — the parenthesised 4-column slot grammar it rests on is unchanged.

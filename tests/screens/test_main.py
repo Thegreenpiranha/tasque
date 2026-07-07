@@ -1361,6 +1361,26 @@ async def test_junk_due_date_pulses_invalid_and_keeps_bar_open(mem_db):
         assert mem_db.get(saved.id).due_date is None  # nothing persisted
 
 
+async def test_junk_due_date_shows_inline_parse_hint(mem_db):
+    """A rejected date surfaces the spec's inline hint text so the feedback is
+    words + pulse, never hue alone (due-dates.md Q3)."""
+    mem_db.add(Todo.new("task"))
+    app = _TestApp(_make_controller(mem_db))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one(TodoList).focus()
+        await pilot.press("D")
+        await pilot.pause()
+        screen.query_one("#bar-input", Input).value = "not a date"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        bar = screen.query_one(InputBar)
+        assert bar.border_subtitle == "Can't read that date — try YYYY-MM-DD, today, +3"
+
+
 async def test_overdue_seed_renders_overdue_and_class(mem_db):
     saved = mem_db.add(Todo.new("late task"))
     mem_db.set_due_date(saved.id, _YESTERDAY)

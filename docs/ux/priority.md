@@ -19,7 +19,7 @@
 ## Design Principles (priority-specific; defers to `main-screen.md`)
 
 1. **The glyph is the meaning; colour only reinforces.** Per `main-screen.md` Principle 4, every priority level must read in monochrome. The letter (`H`/`M`/`L`) carries the level; `$error`/`$warning`/muted merely echo it. A bare coloured swatch is out.
-2. **One 4-column slot, shared shape family.** Priority lives in the reserved `#priority` slot (`width: 4`). Its shape — a parenthesised single character — is deliberately the **same family** as the checkbox `[ ]` and the future overdue echo `(!)` (Feature #7), so the slot never changes width or grammar as features land.
+2. **One 4-column slot, shared shape family.** Priority lives in the reserved `#priority` slot (`width: 4`). Its shape — a parenthesised single character — is deliberately the **same bracketed family** as the checkbox `[ ]`/`[x]`, so the slot never changes width or grammar as features land. (An early sketch reserved this slot for an overdue `(!)` echo; Feature #7 retired that — overdue is carried by the word `OVERDUE` in the `#due` slot instead, see `due-dates.md` §Reconciliation — but the parenthesised-glyph grammar the argument rests on is unchanged.)
 3. **Colour the tag, never the row.** Priority tints only `#priority`, so it composes with the `▸`+`$accent` cursor highlight, the `-done` dim, and the future `-overdue` `$error` `#meta` without any two colours fighting for the whole row (`main-screen.md` §High-priority item).
 4. **None is a first-class blank.** `priority is None` renders an empty slot and no CSS class — absence, not a fourth glyph. It is distinct from low, which is a present-but-muted tag.
 
@@ -40,15 +40,15 @@ Rendered content (exact), fed to `Static(..., id="priority", markup=False)`:
 
 ### Why letter tags (and not the alternatives)
 
-- **It is already the room's language.** `main-screen.md` renders `(H)/(M)/(L)` in this exact slot across its wireframes, pairs it with the `[ ]`/`[x]` bracket checkbox, and reserves the **same slot and shape** for Feature #7's overdue echo `(!)`. Any non-parenthesised token (pips, icons) would clash with `(!)` the moment #7 lands, forcing a slot redesign. Coherence with the shipped language is the decisive factor.
+- **It is already the room's language.** `main-screen.md` renders `(H)/(M)/(L)` in this exact slot across its wireframes and pairs it with the `[ ]`/`[x]` bracket checkbox — a single **bracketed-glyph grammar** across the fixed-width left slots. Any non-parenthesised token (pips, icons) would clash with that grammar, forcing a slot redesign. Coherence with the shipped language is the decisive factor.
 - **Fully ASCII → zero fallback, monochrome- and 16-colour-legible.** `( H ) M L` are plain ASCII; there is nothing to degrade. On a 16-colour terminal the tokens collapse to near colours but the letters are untouched, so no information is lost (`main-screen.md` §Degradation).
 - **Doubly grounded in convention.** taskwarrior's `H/M/L` and todo.txt's parenthesised letters are the two most recognised terminal to-do priority notations; a taskwarrior/todo.txt user reads `(H)` instantly.
 - **Colour-blind safe by construction.** Three distinct letters are distinguishable with colour fully disabled; colour is pure reinforcement.
 
 ### Rejected alternatives
 
-- **Pips `●` / `●●` / `●●●`.** Count-based, so colour-blind-safe, *but*: (1) non-ASCII (`●` U+25CF) needs a fallback (`*`/`o`), which the letter tags don't; (2) a lone `●` for low is easy to mistake for a bullet/cursor artefact; (3) it does **not** share a shape family with the checkbox or the `(!)` overdue echo, so it breaks slot grammar at Feature #7; (4) harder to voice for a screen reader (the letter maps straight to "high"). Rejected.
-- **Coloured icons / arrows (`▲ ■ ▼`, `↑ = ↓`).** Direction (up=high) is a nice colour-free shape signal, but non-ASCII (fallback needed), no shared family with `(!)`, and no established terminal-to-do precedent. Rejected in favour of the referenced letter convention.
+- **Pips `●` / `●●` / `●●●`.** Count-based, so colour-blind-safe, *but*: (1) non-ASCII (`●` U+25CF) needs a fallback (`*`/`o`), which the letter tags don't; (2) a lone `●` for low is easy to mistake for a bullet/cursor artefact; (3) it does **not** share a shape family with the bracketed checkbox, so it breaks the slot's bracketed-glyph grammar; (4) harder to voice for a screen reader (the letter maps straight to "high"). Rejected.
+- **Coloured icons / arrows (`▲ ■ ▼`, `↑ = ↓`).** Direction (up=high) is a nice colour-free shape signal, but non-ASCII (fallback needed), no shared family with the bracketed checkbox/tag slots, and no established terminal-to-do precedent. Rejected in favour of the referenced letter convention.
 - **Colour + word (`High`/`Med`/`Low`).** A full word does not fit `width: 4` and would eat the `1fr` title column, violating `main-screen.md`'s density principle (#2). Rejected — the letter *is* the word, abbreviated.
 - **Bare coloured swatch (a colour block, no glyph).** Fails Principle 4 outright — meaning by hue alone. Rejected.
 - **A fourth glyph for "none".** Rejected — absence is the honest signal for "no priority set" and matches the nullable model (`feature-6.md` encoding decision). A blank slot ≠ a low tag.

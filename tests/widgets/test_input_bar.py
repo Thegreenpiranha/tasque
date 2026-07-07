@@ -382,6 +382,55 @@ async def test_flash_invalid_pulses_and_keeps_bar_open():
         assert app.query_one("#bar-input", Input).value == "garbage"  # input intact
 
 
+async def test_flash_invalid_shows_parse_hint_in_border_subtitle():
+    """flash_invalid surfaces the spec's inline hint (due-dates.md Q3), so the
+    parse-failure feedback is carried by words, not the border hue alone."""
+    app = _BarApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        bar = app.query_one(InputBar)
+        bar.open_due(1, "")
+        await pilot.pause()
+        app.query_one("#bar-input", Input).value = "garbage"
+        bar.flash_invalid()
+        await pilot.pause()
+
+        assert bar.border_subtitle == "Can't read that date — try YYYY-MM-DD, today, +3"
+
+
+async def test_empty_add_pulse_shows_no_parse_hint():
+    """The empty-add pulse (Feature #5) carries no due-parse hint — that inline
+    copy is specific to the due parse-failure path, never the empty-submit pulse."""
+    app = _BarApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        bar = app.query_one(InputBar)
+        bar.open_add()
+        await pilot.pause()
+        await pilot.press("enter")  # empty field → pulse, but no hint
+        await pilot.pause()
+
+        assert bar.has_class("-invalid")
+        assert not bar.border_subtitle
+
+
+async def test_reopening_bar_clears_a_stale_parse_hint():
+    """A hint from a prior due session does not linger when the bar reopens."""
+    app = _BarApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        bar = app.query_one(InputBar)
+        bar.open_due(1, "")
+        await pilot.pause()
+        bar.flash_invalid()
+        await pilot.pause()
+        assert bar.border_subtitle  # hint is showing
+
+        bar.open_due(2, "")  # reopen for another row
+        await pilot.pause()
+        assert not bar.border_subtitle  # cleared on reopen
+
+
 async def test_escape_still_cancels_after_a_successful_add():
     """Once ≥1 task has been added, Esc reads "Done" but still closes the bar
     (the "Done"-labelled escape binding, input-bar.md § Footer hints)."""
